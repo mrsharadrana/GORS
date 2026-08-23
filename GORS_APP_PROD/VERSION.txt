@@ -1,0 +1,11 @@
+GORS_APP_PROD
+Release: Daily Snapshot Reuse
+Version: PROD-DSR-1
+Strategy: FROZEN
+
+Change:
+- Latest verified Kite snapshot is automatically loaded from SQLite on every run.
+- New Holdings.csv is optional and only needed after the actual Kite portfolio changes.
+- Re-uploading the same CSV does not create a duplicate snapshot.
+- Kite cash remains editable from the left panel and is persisted to the latest snapshot.
+- Historical snapshots and decisions are retained.
