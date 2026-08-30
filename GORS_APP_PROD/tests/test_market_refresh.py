@@ -1,5 +1,3 @@
-from datetime import datetime
-
 import market_refresh
 
 
@@ -42,3 +40,4 @@ def test_refresh_persists_latest_signal(monkeypatch):
     assert calls["risk_state"] == "RISK ON"
     assert calls["top3"] == ["MON100", "GOLD", "NIFTY"]
     assert "Asia/Kolkata" in calls["note"]
+    assert "refresh completed at" in calls["note"]
