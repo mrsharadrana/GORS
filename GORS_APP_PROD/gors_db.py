@@ -236,15 +236,25 @@ def get_journal(limit=100):
 
 def save_kite_snapshot(snapshot_time, source, file_name, cash, portfolio_value, row_count, checksum, rows, raw_csv=None):
     with connect() as con:
-        cur = con.execute(
-            """INSERT INTO kite_snapshots
-            (snapshot_time,source,file_name,cash,portfolio_value,row_count,checksum,raw_csv,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?)""",
-            (snapshot_time, source, file_name, float(cash), float(portfolio_value), int(row_count), checksum,
-             raw_csv if USE_POSTGRES else (sqlite3.Binary(raw_csv) if raw_csv is not None else None),
-             datetime.now().isoformat(timespec="seconds")),
-        )
-        sid = cur.lastrowid
+        if USE_POSTGRES:
+            cur = con.execute(
+                """INSERT INTO kite_snapshots
+                (snapshot_time,source,file_name,cash,portfolio_value,row_count,checksum,raw_csv,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?) RETURNING id""",
+                (snapshot_time, source, file_name, float(cash), float(portfolio_value), int(row_count), checksum,
+                 raw_csv, datetime.now().isoformat(timespec="seconds")),
+            )
+            sid = cur.fetchone()["id"]
+        else:
+            cur = con.execute(
+                """INSERT INTO kite_snapshots
+                (snapshot_time,source,file_name,cash,portfolio_value,row_count,checksum,raw_csv,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (snapshot_time, source, file_name, float(cash), float(portfolio_value), int(row_count), checksum,
+                 sqlite3.Binary(raw_csv) if raw_csv is not None else None,
+                 datetime.now().isoformat(timespec="seconds")),
+            )
+            sid = cur.lastrowid
         for r in rows:
             con.execute(
                 """INSERT INTO kite_holdings
