@@ -27,4 +27,4 @@ jobs:
       - name: Compile production Python
         run: python -m py_compile GORS_APP_PROD/gors_db.py GORS_APP_PROD/pages/Rotation_Signal.py
       - name: Run GORS tests
-        run: python -m pytest tests/test_gors_engine.py -q
+        run: python -m pytest tests/test_gors_engine.py tests/test_phase7_dashboard.py -q
