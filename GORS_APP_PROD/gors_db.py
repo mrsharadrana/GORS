@@ -30,6 +30,46 @@ def _database_url():
 
 
 USE_POSTGRES = bool(_database_url())
+_REFRESH_BANNER_RENDERED = False
+
+
+def _last_data_updated():
+    """Return the latest automated Yahoo refresh timestamp, if available."""
+    try:
+        with connect() as con:
+            row = con.execute(
+                "SELECT created_at FROM decision_history WHERE note LIKE ? ORDER BY created_at DESC LIMIT 1",
+                ("Automated Yahoo Finance refresh%",),
+            ).fetchone()
+        if row:
+            return row["created_at"] if isinstance(row, dict) else row[0]
+    except Exception:
+        pass
+    return None
+
+
+def _refresh_banner_html():
+    updated = _last_data_updated()
+    if updated:
+        try:
+            dt = datetime.fromisoformat(str(updated))
+            stamp = dt.strftime("%d-%b-%Y %I:%M %p")
+        except Exception:
+            stamp = str(updated)
+        return (
+            "<div style='background:#062e24;border:1px solid #16835b;"
+            "border-radius:10px;padding:9px 14px;margin:0 0 14px;"
+            "color:#d1fae5;font-weight:800;font-size:.92rem'>"
+            f"🟢 Last Data Updated: {stamp} IST"
+            "</div>"
+        )
+    return (
+        "<div style='background:#422006;border:1px solid #b45309;"
+        "border-radius:10px;padding:9px 14px;margin:0 0 14px;"
+        "color:#fef3c7;font-weight:800;font-size:.92rem'>"
+        "🟡 Last Data Updated: No automated refresh recorded yet"
+        "</div>"
+    )
 
 
 def _rewrite_db_labels(value):
@@ -52,33 +92,37 @@ def _rewrite_db_labels(value):
 # The existing dashboard predates the persistent-backend switch and contains
 # a few hard-coded SQLite labels. Rewrite only those presentation strings when
 # production is actually using Neon; local SQLite development is unchanged.
-if USE_POSTGRES:
-    try:
-        import streamlit as _st
+try:
+    import streamlit as _st
 
-        _original_markdown = _st.markdown
-        _original_caption = _st.caption
-        _original_info = _st.info
-        _original_success = _st.success
+    _original_markdown = _st.markdown
+    _original_caption = _st.caption
+    _original_info = _st.info
+    _original_success = _st.success
 
-        def _db_markdown(body, *args, **kwargs):
-            return _original_markdown(_rewrite_db_labels(body), *args, **kwargs)
+    def _db_markdown(body, *args, **kwargs):
+        global _REFRESH_BANNER_RENDERED
+        body = _rewrite_db_labels(body)
+        if not _REFRESH_BANNER_RENDERED:
+            body = _refresh_banner_html() + body
+            _REFRESH_BANNER_RENDERED = True
+        return _original_markdown(body, *args, **kwargs)
 
-        def _db_caption(body, *args, **kwargs):
-            return _original_caption(_rewrite_db_labels(body), *args, **kwargs)
+    def _db_caption(body, *args, **kwargs):
+        return _original_caption(_rewrite_db_labels(body), *args, **kwargs)
 
-        def _db_info(body, *args, **kwargs):
-            return _original_info(_rewrite_db_labels(body), *args, **kwargs)
+    def _db_info(body, *args, **kwargs):
+        return _original_info(_rewrite_db_labels(body), *args, **kwargs)
 
-        def _db_success(body, *args, **kwargs):
-            return _original_success(_rewrite_db_labels(body), *args, **kwargs)
+    def _db_success(body, *args, **kwargs):
+        return _original_success(_rewrite_db_labels(body), *args, **kwargs)
 
-        _st.markdown = _db_markdown
-        _st.caption = _db_caption
-        _st.info = _db_info
-        _st.success = _db_success
-    except Exception:
-        pass
+    _st.markdown = _db_markdown
+    _st.caption = _db_caption
+    _st.info = _db_info
+    _st.success = _db_success
+except Exception:
+    pass
 
 
 class _PostgresConnection:
