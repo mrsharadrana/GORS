@@ -1,0 +1,1 @@
+Phase 6 freezes strategy parameters and adds only data reliability: weekday 4 PM IST Yahoo refresh, validation, MON100 correction gate, safe cache metadata, and regression tests.
