@@ -306,7 +306,9 @@ def save_decision(decision_date, decision, risk_state, top3, note=""):
         VALUES (?,?,?,?,?,?,?,?)
         ON CONFLICT(decision_date) DO UPDATE SET decision=excluded.decision,
         risk_state=excluded.risk_state,top1=excluded.top1,top2=excluded.top2,
-        top3=excluded.top3,note=excluded.note,created_at=excluded.created_at""",
+        top3=excluded.top3,note=excluded.note,created_at=CASE
+      WHEN excluded.note LIKE 'Automated Yahoo Finance refresh%' THEN excluded.created_at
+      ELSE decision_history.created_at END""",
         (decision_date, decision, risk_state, top3[0], top3[1], top3[2], note, datetime.now().isoformat(timespec="seconds")))
 
 
