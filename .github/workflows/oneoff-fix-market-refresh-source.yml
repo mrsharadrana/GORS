@@ -22,10 +22,10 @@ jobs:
 
           path = Path("GORS_APP_PROD/gors_db.py")
           text = path.read_text()
-          old = 'top3=excluded.top3,note=excluded.note,created_at=excluded.created_at)'
+          old = 'top3=excluded.top3,note=excluded.note,created_at=excluded.created_at"""'
           new = '''top3=excluded.top3,note=excluded.note,created_at=CASE
                 WHEN excluded.note LIKE 'Automated Yahoo Finance refresh%' THEN excluded.created_at
-                ELSE decision_history.created_at END)'''
+                ELSE decision_history.created_at END"""'''
           if old not in text:
               raise SystemExit("Expected save_decision SQL pattern was not found")
           path.write_text(text.replace(old, new, 1))
