@@ -1,0 +1,1 @@
+Run the existing GORS CI workflow against this branch before merge.

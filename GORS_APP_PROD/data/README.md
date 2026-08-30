@@ -1,0 +1,1 @@
+This directory is populated by the scheduled GORS Yahoo Finance refresh workflow. The CSV and metadata are written only after the full frozen ticker universe passes validation and the MON100 correction gate.
