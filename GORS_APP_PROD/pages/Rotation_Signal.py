@@ -6,18 +6,11 @@ import pandas as pd
 import streamlit as st
 
 from gors_db import get_decisions, latest_kite_snapshot
+from gors_dashboard_helpers import build_safe_manual_actions, strategy_top3
 from gors_engine import (
-    DD_TRIGGER,
-    HOLD_RANK,
-    RECOVERY_FRACTION,
-    RISK_OFF_EXPOSURE,
-    RSI_FULL_EXIT,
-    RSI_EXIT,
-    PRODUCTION_COST,
-    build_holdings_table,
-    build_manual_actions,
-    calculate_gors_signal,
-    load_market_data,
+    DD_TRIGGER, HOLD_RANK, RECOVERY_FRACTION, RISK_OFF_EXPOSURE,
+    RSI_FULL_EXIT, RSI_EXIT, PRODUCTION_COST, build_holdings_table,
+    calculate_gors_signal, load_market_data,
 )
 
 st.set_page_config(page_title="GORS HR5 Manual Dashboard", page_icon="🔄", layout="wide")
@@ -35,7 +28,6 @@ st.markdown("""
 .safe-box { border:2px solid #22c55e; border-radius:18px; padding:24px; background:#052e16; margin:20px 0; }
 .risk-on { color:#86efac; font-weight:950; }
 .risk-off { color:#fbbf24; font-weight:950; }
-.note { color:#94a3b8; font-size:.9rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,32 +43,20 @@ def build_rotation_history(decisions):
     for current in ordered:
         current_top = top3(current)
         if previous is None:
-            signal = "BASELINE"
-            from_etf = "—"
-            to_etf = "—"
-            reason = "First recorded GORS decision"
+            signal, from_etf, to_etf, reason = "BASELINE", "—", "—", "First recorded GORS decision"
         else:
             previous_top = top3(previous)
             entered = [x for x in current_top if x not in previous_top]
             exited = [x for x in previous_top if x not in current_top]
             if current_top == previous_top:
-                signal = "NO ROTATION"
-                from_etf = "—"
-                to_etf = "—"
-                reason = "Top-3 composition/order unchanged"
+                signal, from_etf, to_etf, reason = "NO ROTATION", "—", "—", "Top-3 composition/order unchanged"
             else:
                 signal = "ROTATION"
                 from_etf = ", ".join(exited) if exited else "—"
                 to_etf = ", ".join(entered) if entered else "—"
                 reason = current.get("note") or "GORS Top-3 changed"
-        result.append({
-            "Date": current.get("decision_date"),
-            "Signal": signal,
-            "From": from_etf,
-            "To": to_etf,
-            "Top 3": " / ".join(current_top) if current_top else "—",
-            "Reason": reason,
-        })
+        result.append({"Date": current.get("decision_date"), "Signal": signal, "From": from_etf,
+                       "To": to_etf, "Top 3": " / ".join(current_top) if current_top else "—", "Reason": reason})
         previous = current
     return list(reversed(result))
 
@@ -90,15 +70,11 @@ st.caption("Signal-only dashboard. No broker orders are placed or routed by GORS
 
 snapshot, kite_rows = latest_kite_snapshot()
 decisions = get_decisions(limit=250)
-previous_top3 = top3(decisions[0]) if decisions else None
 previous_risk = str(decisions[0].get("risk_state", "RISK ON")).replace("-", " ") if decisions else "RISK ON"
 
 try:
     market_data = load_market_data()
-    signal = calculate_gors_signal(
-        market_data,
-        as_of=datetime.now(timezone.utc).date(),
-    )
+    signal = calculate_gors_signal(market_data, as_of=datetime.now(timezone.utc).date())
 except Exception as exc:
     st.error(f"Cannot produce a safe GORS signal: {exc}")
     st.info("The dashboard intentionally refuses to use partial or incomplete market data.")
@@ -118,9 +94,7 @@ st.markdown(
     <div class='manual-title {risk_class}'>{signal['risk_state']}</div>
     <div class='manual-sub'>Signal date: <b>{signal['signal_date']}</b> (latest completed common trading date)</div>
     <div class='manual-sub'>Frozen config: HoldRank {HOLD_RANK} • Drawdown {DD_TRIGGER:.0%} • Recovery {RECOVERY_FRACTION:.0%} of trigger • Risk-off {RISK_OFF_EXPOSURE:.0%} • Cost {PRODUCTION_COST:.2%} • RSI(14) {RSI_EXIT}/{RSI_FULL_EXIT}</div>
-    </div>""",
-    unsafe_allow_html=True,
-)
+    </div>""", unsafe_allow_html=True)
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Target Exposure", f"{signal['target_exposure_pct']:.0%}", format_money(target_exposure_value))
@@ -151,12 +125,9 @@ if signal["risk_state"] == "RISK OFF":
 elif previous_risk == "RISK OFF" and signal["risk_state"] == "RISK ON":
     st.markdown("<div class='action-box'><div class='action-title'>RISK-ON</div><div class='action-line'>Normal 100% target exposure is restored.</div></div>", unsafe_allow_html=True)
 
-actions = build_manual_actions(signal, kite_rows, cash) if snapshot else []
+actions = build_safe_manual_actions(signal, kite_rows, cash) if snapshot else []
 if actions:
-    action_rows = pd.DataFrame([a.__dict__ for a in actions]).rename(columns={
-        "etf": "ETF", "action": "Action", "quantity": "Quantity",
-        "approximate_value": "Approximate Value", "reason": "Reason", "signal_date": "Signal Date",
-    })
+    action_rows = pd.DataFrame([a.__dict__ for a in actions]).rename(columns={"etf":"ETF", "action":"Action", "quantity":"Quantity", "approximate_value":"Approximate Value", "reason":"Reason", "signal_date":"Signal Date"})
     action_rows["Approximate Value"] = action_rows["Approximate Value"].map(lambda x: "—" if pd.isna(x) else format_money(x))
     st.dataframe(action_rows, use_container_width=True, hide_index=True)
 else:
@@ -166,7 +137,6 @@ st.caption("Manual execution boundary: verify Kite prices, funds and quantities 
 
 with st.expander("Rotation history from saved decisions"):
     if decisions:
-        history = build_rotation_history(decisions)
-        st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(build_rotation_history(decisions)), use_container_width=True, hide_index=True)
     else:
         st.info("No GORS decision history is available yet.")
