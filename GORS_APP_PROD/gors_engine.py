@@ -149,6 +149,27 @@ def latest_completed_common_date(panel,as_of=None):
 def run_frozen_backtest(panel,as_of=None):
     start=first_valid(panel); return run_forensic(panel,start)
 
+def monthly_holdrank_selection(panel,cutoff,hold_rank=HOLD_RANK,top_n=TOP_N):
+    """Replay monthly Top-N selection using the backtest HoldRank keep/replace rule."""
+    dates=[d for d in monthly_dates(panel.index) if d<=cutoff and len(eligible(panel,d))>=top_n]
+    if not dates: raise RuntimeError("No monthly rebalance date has enough eligible ETFs.")
+    holdings=[]; history=[]
+    for d in dates:
+        scores=eligible(panel,d); ranked=sorted(scores.items(),key=lambda z:z[1],reverse=True); ranks={n:i+1 for i,(n,_) in enumerate(ranked)}
+        previous=list(holdings)
+        kept=[n for n in previous if ranks.get(n,10**9)<=hold_rank]
+        selected=list(kept)
+        for n,_ in ranked:
+            if len(selected)>=top_n: break
+            if n not in selected: selected.append(n)
+        for n in previous:
+            if n not in selected: history.append({"Date":d,"ETF":n,"Rank":ranks.get(n),"Action":"REPLACE"})
+        for n in selected:
+            history.append({"Date":d,"ETF":n,"Rank":ranks.get(n),"Action":"KEEP" if n in previous else "NEW"})
+        holdings=selected
+    final_date=dates[-1]; scores=eligible(panel,final_date); ranked=sorted(scores.items(),key=lambda z:z[1],reverse=True); rank_map={n:i+1 for i,(n,_) in enumerate(ranked)}
+    return holdings,final_date,scores,rank_map,history
+
 def calculate_gors_signal(panel,as_of=None):
     cutoff=latest_completed_common_date(panel,as_of)
     if cutoff is None: raise RuntimeError("FINAL STOPPED: no completed common market-data date exists.")
@@ -156,21 +177,12 @@ def calculate_gors_signal(panel,as_of=None):
     last=result["state"].iloc[-1]
     prices={c:float(panel.loc[cutoff,c]) for c in panel.columns}
 
-    # Phase 1: portfolio ranking is monthly.  Daily refreshes use the
-    # latest completed common date for prices/state, but Top-3 is ranked
-    # only on the latest completed month-end and remains unchanged until
-    # the next month-end.
-    rebalance_dates=[d for d in monthly_dates(panel.index) if d<=cutoff and len(eligible(panel,d))>=TOP_N]
-    ranking_date=rebalance_dates[-1] if rebalance_dates else cutoff
-    scores=eligible(panel,ranking_date)
-    ranked=sorted(scores.items(),key=lambda z:z[1],reverse=True)
-    target_ranked=[x[0] for x in ranked[:TOP_N]]
-
+    target_ranked,ranking_date,scores,rank_map,history=monthly_holdrank_selection(panel,cutoff)
     holdings={x:1 for x in target_ranked}
     rsis=pd.DataFrame({c:rsi(panel[c]) for c in panel.columns},index=panel.index)
-    rank_map={n:i+1 for i,(n,_) in enumerate(ranked)}
-    top3_table=[{"Rank":rank_map.get(n),"ETF":n,"Signal/Score":scores.get(n),"RSI":float(rsis.loc[cutoff,n]) if pd.notna(rsis.loc[cutoff,n]) else np.nan,"Price":prices.get(n),"Status":"Target"} for n in target_ranked]
-    return {"signal_date":cutoff.date().isoformat(),"ranking_date":ranking_date.date().isoformat(),"risk_state":"RISK OFF" if bool(last["RiskOn"]) else "RISK ON","target_exposure_pct":float(last["TargetExposure"]),"actual_exposure_pct":float(last["ActualExposure"]),"current_drawdown":float(last["Drawdown"]),"equity":float(last["Equity"]),"cash":float(last["Cash"]),"market_value":float(last["MarketValue"]),"holdings":holdings,"top3":target_ranked,"top3_table":top3_table,"prices":prices,"state":result["state"],"events":result["events"],"metrics":result["metrics"],"trades":result["trades"],"annual_turnover":result["annual_turnover"]}
+    action_by_etf={x["ETF"]:x["Action"] for x in history if x["Date"]==ranking_date}
+    top3_table=[{"Rank":rank_map.get(n),"ETF":n,"Signal/Score":scores.get(n),"RSI":float(rsis.loc[cutoff,n]) if pd.notna(rsis.loc[cutoff,n]) else np.nan,"Price":prices.get(n),"Status":action_by_etf.get(n,"KEEP")} for n in target_ranked]
+    return {"signal_date":cutoff.date().isoformat(),"ranking_date":ranking_date.date().isoformat(),"risk_state":"RISK OFF" if bool(last["RiskOn"]) else "RISK ON","target_exposure_pct":float(last["TargetExposure"]),"actual_exposure_pct":float(last["ActualExposure"]),"current_drawdown":float(last["Drawdown"]),"equity":float(last["Equity"]),"cash":float(last["Cash"]),"market_value":float(last["MarketValue"]),"holdings":holdings,"top3":target_ranked,"top3_table":top3_table,"prices":prices,"state":result["state"],"events":result["events"],"metrics":result["metrics"],"trades":result["trades"],"annual_turnover":result["annual_turnover"],"selection_history":history}
 
 def build_holdings_table(kite_rows,prices):
     rows=[]
