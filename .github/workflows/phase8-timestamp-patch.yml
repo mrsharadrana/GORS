@@ -1,0 +1,42 @@
+name: Phase 8 timestamp patch
+
+on:
+  push:
+    branches: [fix/phase8-visible-timestamp]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch main dashboard hero with visible data timestamp
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('GORS_APP_PROD/app.py')
+          s = p.read_text(encoding='utf-8')
+          marker = "  <div class='hero-sub'>Python strategy is the source of truth. Kite is the portfolio truth. No broker orders are placed by GORS.</div>"
+          replacement = marker + "\n  <div class='hero-sub'><b>🕐 Last Data Updated:</b> {snapshot[\"snapshot_time\"] if snapshot else \"No verified snapshot\"}</div>"
+          if replacement not in s:
+              if marker not in s:
+                  raise SystemExit('hero marker not found')
+              s = s.replace(marker, replacement, 1)
+              p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit dashboard timestamp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add GORS_APP_PROD/app.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix visible dashboard data timestamp"
+          git push
+      - name: Remove patch workflow
+        if: success()
+        run: |
+          git rm .github/workflows/phase8-timestamp-patch.yml
+          git commit -m "Remove one-time timestamp patch workflow"
+          git push
