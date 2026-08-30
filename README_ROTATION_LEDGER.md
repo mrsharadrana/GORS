@@ -1,0 +1,1 @@
+ETF rotation history is derived from persisted daily GORS decisions. Membership changes are shown; order-only changes are ignored.
