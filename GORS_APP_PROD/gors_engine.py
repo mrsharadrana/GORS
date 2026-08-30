@@ -86,6 +86,15 @@ def calculate_rsi_exit_actions(panel, holdings, cutoff):
             actions.append({"ETF":etf,"Action":"SELL_HALF","Fraction":0.5,"Quantity":int(np.ceil(quantity*0.5)),"RSI":float(rv),"Reason":"RSI >= 85"})
     return actions
 
+def risk_control_transition(drawdown, risk_on, trigger=DD_TRIGGER, recovery_frac=RECOVERY_FRACTION):
+    """Apply the frozen DD risk control: 8% trigger, 75% recovery, 50% exposure."""
+    if not risk_on and drawdown <= -trigger:
+        return True, "RISK OFF"
+    recovery_drawdown = -trigger * (1.0 - recovery_frac)
+    if risk_on and drawdown >= recovery_drawdown:
+        return False, "RISK ON"
+    return risk_on, None
+
 def monthly_dates(idx):
     idx=pd.DatetimeIndex(idx); s=pd.Series(idx,index=idx); return list(s.groupby(s.index.to_period("M")).last())
 
@@ -138,8 +147,8 @@ def run_forensic(panel,start_date,cost=PRODUCTION_COST,hold_rank=HOLD_RANK,trigg
                 holdings[t]=holdings.get(t,0)+q; cash-=value*(1+cost); turnover+=value; trades+=1
     for d in dates:
         p=panel.loc[d]; eq=cash+mv(p); peak=max(peak,eq); dd=eq/peak-1
-        if dd<=-trigger and not risk_on:risk_on=True; event_rows.append({"Date":d,"Event":"RISK OFF"})
-        elif risk_on and dd>=-trigger*(1-recovery_frac):risk_on=False; event_rows.append({"Date":d,"Event":"RISK ON"})
+        risk_on, event = risk_control_transition(dd, risk_on, trigger, recovery_frac)
+        if event: event_rows.append({"Date":d,"Event":event})
         desired=reduced_exposure if risk_on else 1.0
         if d in rebal and d>=start_date:enforce(p,desired,"monthly")
         eq=cash+mv(p); peak=max(peak,eq); dd=eq/peak-1
