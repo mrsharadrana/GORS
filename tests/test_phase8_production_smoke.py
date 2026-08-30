@@ -12,3 +12,9 @@ def test_production_dashboard_safety_boundary():
 
 def test_production_dashboard_exists():
     assert PAGE.exists()
+
+
+def test_timestamp_is_human_readable_ist():
+    text = PAGE.read_text(encoding="utf-8")
+    assert "Asia/Kolkata" in text
+    assert "%d-%b-%Y %I:%M %p IST" in text
