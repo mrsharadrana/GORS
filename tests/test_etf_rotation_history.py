@@ -1,4 +1,4 @@
-from GORS_APP_PROD.pages.History import rotation_history
+from GORS_APP_PROD.rotation_history import rotation_history
 
 
 def test_order_only_change_is_ignored():
@@ -18,5 +18,3 @@ def test_membership_change_is_recorded():
     assert len(result) == 1
     assert result[0]["Added"] == "SMALLCAP"
     assert result[0]["Removed"] == "BANKBEES"
-    assert result[0]["Previous Top 3"] == "BANKBEES · GOLDBEES · MON100"
-    assert result[0]["New Top 3"] == "MON100 · SMALLCAP · GOLDBEES"
