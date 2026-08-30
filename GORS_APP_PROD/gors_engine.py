@@ -156,7 +156,25 @@ def run_forensic(panel,start_date,cost=PRODUCTION_COST,hold_rank=HOLD_RANK,trigg
     equity=pd.Series(dict(eq_rows)); st=pd.DataFrame(state_rows,index=dates); return {"equity":equity,"state":st,"events":pd.DataFrame(event_rows),"trades":trades,"annual_turnover":turnover/max((dates[-1]-dates[0]).days/365.25,1/365.25),"metrics":stats(equity)}
 
 def latest_completed_common_date(panel,as_of=None):
-    as_of=pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now(); idx=panel.index[panel.index<pd.Timestamp(as_of).normalize()]; return idx[-1] if len(idx) else None
+    """Return the latest market date strictly before the local calendar date of as_of.
+
+    Market data is normalized to timezone-naive timestamps.  Normalize an aware
+    as_of to the same representation before comparing, avoiding naive/aware
+    pandas comparison failures in scheduled GitHub Actions runs.
+    """
+    if as_of is None:
+        cutoff_date = pd.Timestamp.now().normalize()
+    else:
+        timestamp = pd.Timestamp(as_of)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_localize(None)
+        cutoff_date = timestamp.normalize()
+
+    index = pd.DatetimeIndex(panel.index)
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    completed = index[index < cutoff_date]
+    return completed[-1] if len(completed) else None
 
 def run_frozen_backtest(panel,as_of=None):
     return run_forensic(panel,first_valid(panel))
@@ -204,5 +222,5 @@ def build_manual_actions(signal,kite_rows,cash):
         if price>0 and abs(diff)>=1:actions.append(ManualAction(etf,"BUY" if diff>0 else "SELL",int(abs(diff)),int(abs(diff))*price,"Match monthly GORS target holding.",signal["signal_date"]))
     for etf,qty in current.items():
         if etf not in target and qty>=1:
-            price=float(prices.get(etf) or 0);actions.append(ManualAction(etf,"SELL",int(qty),int(qty)*price if price else None,"ETF is no longer in target holdings.",signal["signal_date"]))
+            price=float(prices.get(etf) or 0);actions.append(ManualAction(etf,"SELL",int(qty),int(qty)*price,"ETF is outside current GORS Top 3.",signal["signal_date"]))
     return actions
