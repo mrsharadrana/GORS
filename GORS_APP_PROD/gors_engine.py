@@ -48,14 +48,12 @@ def get_series(ticker: str) -> pd.Series:
 
 def download_market_data() -> dict[str,pd.Series]: return {n:get_series(t) for n,t in TICKERS.items()}
 
-
 def apply_mon100_correction(raw_data):
     corrected={k:v.copy() for k,v in raw_data.items()}
     for d in ["2021-06-17","2021-06-18"]:
         ts=pd.Timestamp(d)
         if "MON100" in corrected and ts in corrected["MON100"].index: corrected["MON100"].loc[ts]*=10.0
     return corrected
-
 
 def mon100_audit(raw_data, corrected_data):
     raw,corr=raw_data["MON100"],corrected_data["MON100"]; checks=[]
@@ -65,7 +63,6 @@ def mon100_audit(raw_data, corrected_data):
     win=corr.loc[(corr.index>="2021-06-14")&(corr.index<="2021-06-25")]; daily=win.pct_change().dropna(); max_abs=float(daily.abs().max()) if len(daily) else np.nan
     checks.append(bool(np.isfinite(max_abs) and max_abs<.20)); return all(checks)
 
-
 def build_panel(corrected_data):
     panel=pd.DataFrame(corrected_data).sort_index(); panel=panel[~panel.index.duplicated(keep="last")]
     complete=panel.notna().all(axis=1)
@@ -73,22 +70,18 @@ def build_panel(corrected_data):
     last_complete=panel.index[complete][-1]
     return panel.loc[:last_complete].copy() if last_complete != panel.index[-1] else panel
 
-
 def load_market_data():
     raw=download_market_data(); corrected=apply_mon100_correction(raw)
     if not mon100_audit(raw,corrected): raise RuntimeError("FINAL STOPPED: MON100 correction gate failed.")
     return build_panel(corrected)
-
 
 def rsi(s, period=14):
     d=s.diff(); g=d.clip(lower=0); l=-d.clip(upper=0)
     ag=g.ewm(alpha=1/period,adjust=False,min_periods=period).mean(); al=l.ewm(alpha=1/period,adjust=False,min_periods=period).mean()
     out=100-100/(1+ag/al.replace(0,np.nan)); return out.where(~((al==0)&(ag>0)),100.0)
 
-
 def monthly_dates(idx):
     idx=pd.DatetimeIndex(idx); s=pd.Series(idx,index=idx); return list(s.groupby(s.index.to_period("M")).last())
-
 
 def eligible(panel,date):
     loc=panel.index.get_loc(date)
@@ -99,19 +92,16 @@ def eligible(panel,date):
         if pd.notna(now) and pd.notna(prev) and now>0 and prev>0: out[c]=float(now/prev-1)
     return out
 
-
 def first_valid(panel):
     for d in monthly_dates(panel.index):
         if len(eligible(panel,d))>=TOP_N:return d
     raise RuntimeError("No date has three eligible ETFs.")
-
 
 def stats(eq):
     eq=pd.Series(eq).dropna(); yrs=max((eq.index[-1]-eq.index[0]).days/365.25,1/365.25); final=float(eq.iloc[-1]); ret=final/INITIAL-1; cagr=(final/INITIAL)**(1/yrs)-1
     dr=eq.pct_change().replace([np.inf,-np.inf],np.nan).dropna(); peak=eq.cummax(); dd=float((eq/peak-1).min()); sh=np.nan if dr.std(ddof=1)==0 else np.sqrt(252)*dr.mean()/dr.std(ddof=1)
     neg=dr[dr<0]; so=np.nan if len(neg)<2 or neg.std(ddof=1)==0 else np.sqrt(252)*dr.mean()/neg.std(ddof=1)
     return {"Final":final,"Return":ret,"CAGR":cagr,"MaxDD":dd,"Sharpe":sh,"Sortino":so,"Calmar":cagr/abs(dd) if dd<0 else np.nan}
-
 
 def run_forensic(panel,start_date,cost=PRODUCTION_COST,hold_rank=HOLD_RANK,trigger=DD_TRIGGER,reduced_exposure=RISK_OFF_EXPOSURE,recovery_frac=RECOVERY_FRACTION):
     dates=panel.index; rebal=set(monthly_dates(dates)); rsis=pd.DataFrame({c:rsi(panel[c]) for c in panel.columns},index=dates); cash=INITIAL; holdings={}; trades=0; turnover=0.; risk_on=False; risk_events=0; risk_rebalances=0; eq_rows=[]; state_rows=[]; event_rows=[]; peak=INITIAL
@@ -151,29 +141,36 @@ def run_forensic(panel,start_date,cost=PRODUCTION_COST,hold_rank=HOLD_RANK,trigg
         eq_rows.append((d,eq)); state_rows.append({"RiskOn":risk_on,"TargetExposure":desired,"ActualExposure":mv(p)/eq if eq else 0.,"Drawdown":dd,"Equity":eq,"Cash":cash,"MarketValue":mv(p),"Trades":trades})
     equity=pd.Series(dict(eq_rows)); st=pd.DataFrame(state_rows,index=dates); return {"equity":equity,"state":st,"events":pd.DataFrame(event_rows),"trades":trades,"annual_turnover":turnover/max((dates[-1]-dates[0]).days/365.25,1/365.25),"metrics":stats(equity)}
 
-
 def latest_completed_common_date(panel,as_of=None):
     as_of=pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now()
     idx=panel.index[panel.index<pd.Timestamp(as_of).normalize()]
     return idx[-1] if len(idx) else None
 
-
 def run_frozen_backtest(panel,as_of=None):
     start=first_valid(panel); return run_forensic(panel,start)
-
 
 def calculate_gors_signal(panel,as_of=None):
     cutoff=latest_completed_common_date(panel,as_of)
     if cutoff is None: raise RuntimeError("FINAL STOPPED: no completed common market-data date exists.")
     result=run_frozen_backtest(panel,as_of=cutoff)
-    last=result["state"].iloc[-1]; prices={c:float(panel.loc[cutoff,c]) for c in panel.columns}; scores=eligible(result["panel"],cutoff) if "panel" in result else eligible(panel,cutoff)
-    ranked=sorted(scores.items(),key=lambda z:z[1],reverse=True); target_ranked=[x[0] for x in ranked[:TOP_N]]
-    holdings=dict(result.get("holdings",{})) if "holdings" in result else {}
-    if not holdings: holdings={x:1 for x in target_ranked}
-    rsis=pd.DataFrame({c:rsi(panel[c]) for c in panel.columns},index=panel.index); rank_map={n:i+1 for i,(n,_) in enumerate(ranked)}
-    top3_table=[{"Rank":rank_map.get(n),"ETF":n,"Signal/Score":scores.get(n),"RSI":float(rsis.loc[cutoff,n]) if pd.notna(rsis.loc[cutoff,n]) else np.nan,"Price":prices.get(n),"Status":"Target"} for n in target_ranked]
-    return {"signal_date":cutoff.date().isoformat(),"risk_state":"RISK OFF" if bool(last["RiskOn"]) else "RISK ON","target_exposure_pct":float(last["TargetExposure"]),"actual_exposure_pct":float(last["ActualExposure"]),"current_drawdown":float(last["Drawdown"]),"equity":float(last["Equity"]),"cash":float(last["Cash"]),"market_value":float(last["MarketValue"]),"holdings":holdings,"top3":target_ranked,"top3_table":top3_table,"prices":prices,"state":result["state"],"events":result["events"],"metrics":result["metrics"],"trades":result["trades"],"annual_turnover":result["annual_turnover"]}
+    last=result["state"].iloc[-1]
+    prices={c:float(panel.loc[cutoff,c]) for c in panel.columns}
 
+    # Phase 1: portfolio ranking is monthly.  Daily refreshes use the
+    # latest completed common date for prices/state, but Top-3 is ranked
+    # only on the latest completed month-end and remains unchanged until
+    # the next month-end.
+    rebalance_dates=[d for d in monthly_dates(panel.index) if d<=cutoff and len(eligible(panel,d))>=TOP_N]
+    ranking_date=rebalance_dates[-1] if rebalance_dates else cutoff
+    scores=eligible(panel,ranking_date)
+    ranked=sorted(scores.items(),key=lambda z:z[1],reverse=True)
+    target_ranked=[x[0] for x in ranked[:TOP_N]]
+
+    holdings={x:1 for x in target_ranked}
+    rsis=pd.DataFrame({c:rsi(panel[c]) for c in panel.columns},index=panel.index)
+    rank_map={n:i+1 for i,(n,_) in enumerate(ranked)}
+    top3_table=[{"Rank":rank_map.get(n),"ETF":n,"Signal/Score":scores.get(n),"RSI":float(rsis.loc[cutoff,n]) if pd.notna(rsis.loc[cutoff,n]) else np.nan,"Price":prices.get(n),"Status":"Target"} for n in target_ranked]
+    return {"signal_date":cutoff.date().isoformat(),"ranking_date":ranking_date.date().isoformat(),"risk_state":"RISK OFF" if bool(last["RiskOn"]) else "RISK ON","target_exposure_pct":float(last["TargetExposure"]),"actual_exposure_pct":float(last["ActualExposure"]),"current_drawdown":float(last["Drawdown"]),"equity":float(last["Equity"]),"cash":float(last["Cash"]),"market_value":float(last["MarketValue"]),"holdings":holdings,"top3":target_ranked,"top3_table":top3_table,"prices":prices,"state":result["state"],"events":result["events"],"metrics":result["metrics"],"trades":result["trades"],"annual_turnover":result["annual_turnover"]}
 
 def build_holdings_table(kite_rows,prices):
     rows=[]
@@ -182,7 +179,6 @@ def build_holdings_table(kite_rows,prices):
     df=pd.DataFrame(rows)
     if df.empty:return pd.DataFrame(columns=["ETF","Quantity","Price","Portfolio Value","Weight"])
     total=float(df["Portfolio Value"].sum()); df["Weight"]=df["Portfolio Value"]/total if total else 0.; return df
-
 
 def build_manual_actions(signal,kite_rows,cash):
     target=signal.get("holdings",{}); prices=signal["prices"]; current={r["etf"]:float(r.get("quantity") or 0) for r in kite_rows}; actions=[]
