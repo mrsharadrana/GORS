@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -9,12 +10,68 @@ BACKUP_DIR = APP_DIR / "backups"
 DB_PATH = DATA_DIR / "gors.db"
 
 
+def _database_url():
+    """Return the production PostgreSQL URL when configured.
+
+    Streamlit Cloud should provide DATABASE_URL through Streamlit Secrets.
+    Local development remains SQLite when the secret is absent.
+    """
+    value = os.getenv("DATABASE_URL")
+    if value:
+        return value
+    try:
+        import streamlit as st
+        value = st.secrets.get("DATABASE_URL")
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return None
+
+
+USE_POSTGRES = bool(_database_url())
+
+
+class _PostgresConnection:
+    """Small compatibility wrapper so the existing DB API works on Postgres."""
+    def __init__(self, url):
+        import psycopg
+        from psycopg.rows import dict_row
+        self._con = psycopg.connect(url, row_factory=dict_row)
+
+    def __enter__(self):
+        self._con.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return self._con.__exit__(exc_type, exc, tb)
+
+    @staticmethod
+    def _sql(sql):
+        return sql.replace("?", "%s")
+
+    def execute(self, sql, params=None):
+        return self._con.execute(self._sql(sql), params)
+
+    def executescript(self, sql):
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                self._con.execute(statement)
+
+    def close(self):
+        self._con.close()
+
+
 def ensure_dirs():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    if not USE_POSTGRES:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def connect():
+    if USE_POSTGRES:
+        return _PostgresConnection(_database_url())
     ensure_dirs()
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -24,96 +81,112 @@ def connect():
 
 
 def init_db():
-    """Create only the canonical production tables.
-
-    Architecture rule:
-      * SQLite stores verified facts and history.
-      * Python owns strategy/decision calculations.
-      * Kite snapshots are the actual portfolio truth.
-      * UI is only the display/control layer.
-
-    Legacy tables from older GORS versions are intentionally not used or
-    recreated here. Existing legacy tables are left untouched so an upgrade
-    cannot destroy historical data.
-    """
+    """Create the canonical production tables on the configured backend."""
     ensure_dirs()
-    with connect() as con:
-        con.executescript("""
+    if USE_POSTGRES:
+        ddl = """
         CREATE TABLE IF NOT EXISTS decision_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            decision_date TEXT NOT NULL,
+            id BIGSERIAL PRIMARY KEY,
+            decision_date TEXT NOT NULL UNIQUE,
             decision TEXT NOT NULL,
             risk_state TEXT NOT NULL,
-            top1 TEXT,
-            top2 TEXT,
-            top3 TEXT,
+            top1 TEXT, top2 TEXT, top3 TEXT,
             note TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(decision_date)
+            created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS journal (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             entry_date TEXT NOT NULL,
             decision TEXT NOT NULL,
             note TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS kite_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             snapshot_time TEXT NOT NULL,
             source TEXT NOT NULL,
             file_name TEXT,
-            cash REAL NOT NULL DEFAULT 0,
-            portfolio_value REAL NOT NULL DEFAULT 0,
+            cash DOUBLE PRECISION NOT NULL DEFAULT 0,
+            portfolio_value DOUBLE PRECISION NOT NULL DEFAULT 0,
             row_count INTEGER NOT NULL DEFAULT 0,
             checksum TEXT,
-            raw_csv BLOB,
+            raw_csv BYTEA,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS kite_holdings (
-            snapshot_id INTEGER NOT NULL,
+            snapshot_id BIGINT NOT NULL REFERENCES kite_snapshots(id) ON DELETE CASCADE,
             etf TEXT NOT NULL,
-            quantity REAL NOT NULL,
-            average_price REAL,
-            last_price REAL NOT NULL,
-            value REAL NOT NULL,
-            pnl REAL,
+            quantity DOUBLE PRECISION NOT NULL,
+            average_price DOUBLE PRECISION,
+            last_price DOUBLE PRECISION NOT NULL,
+            value DOUBLE PRECISION NOT NULL,
+            pnl DOUBLE PRECISION,
             isin TEXT,
-            PRIMARY KEY(snapshot_id, etf),
-            FOREIGN KEY(snapshot_id) REFERENCES kite_snapshots(id) ON DELETE CASCADE
+            PRIMARY KEY(snapshot_id, etf)
         );
         CREATE TABLE IF NOT EXISTS integrity_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             event_time TEXT NOT NULL,
             severity TEXT NOT NULL,
             check_name TEXT NOT NULL,
             message TEXT NOT NULL
         );
-        """)
+        """
+        with connect() as con:
+            con.executescript(ddl)
+        return
 
-        # Safe in-place schema migration for existing production DBs.
-        # Never drop tables or delete historical rows.
+    with connect() as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS decision_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            decision_date TEXT NOT NULL UNIQUE,
+            decision TEXT NOT NULL,
+            risk_state TEXT NOT NULL,
+            top1 TEXT, top2 TEXT, top3 TEXT,
+            note TEXT, created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_date TEXT NOT NULL, decision TEXT NOT NULL,
+            note TEXT NOT NULL, created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS kite_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_time TEXT NOT NULL, source TEXT NOT NULL,
+            file_name TEXT, cash REAL NOT NULL DEFAULT 0,
+            portfolio_value REAL NOT NULL DEFAULT 0,
+            row_count INTEGER NOT NULL DEFAULT 0, checksum TEXT,
+            raw_csv BLOB, created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS kite_holdings (
+            snapshot_id INTEGER NOT NULL, etf TEXT NOT NULL,
+            quantity REAL NOT NULL, average_price REAL,
+            last_price REAL NOT NULL, value REAL NOT NULL,
+            pnl REAL, isin TEXT,
+            PRIMARY KEY(snapshot_id, etf),
+            FOREIGN KEY(snapshot_id) REFERENCES kite_snapshots(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS integrity_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_time TEXT NOT NULL, severity TEXT NOT NULL,
+            check_name TEXT NOT NULL, message TEXT NOT NULL
+        );
+        """)
         cols = {r[1] for r in con.execute("PRAGMA table_info(kite_snapshots)").fetchall()}
         if "raw_csv" not in cols:
             con.execute("ALTER TABLE kite_snapshots ADD COLUMN raw_csv BLOB")
 
 
 def migrate_v12_if_needed():
-    """One-time migration of safe historical records from the old V12 DB.
-
-    Holdings/transactions from older GORS versions are deliberately not
-    migrated into the production truth model. Current holdings must come
-    from Kite snapshots, not a second internal portfolio ledger.
-    """
+    if USE_POSTGRES:
+        return "PostgreSQL production DB active. Local V12 migration is not required."
     ensure_dirs()
     with connect() as con:
         count = con.execute("SELECT COUNT(*) AS n FROM decision_history").fetchone()["n"]
     if count:
         return "Permanent DB already initialized."
-    candidates = [
-        Path.home() / "Downloads" / "GORS_App_V12" / "gors_v12.db",
-        Path.home() / "Downloads" / "gors_v12.db",
-    ]
+    candidates = [Path.home() / "Downloads" / "GORS_App_V12" / "gors_v12.db", Path.home() / "Downloads" / "gors_v12.db"]
     source = next((p for p in candidates if p.exists()), None)
     if not source:
         return "No V12 database found. Started with a clean permanent DB."
@@ -125,10 +198,7 @@ def migrate_v12_if_needed():
         try:
             rows = old.execute("SELECT entry_date,decision,note,created_at FROM journal").fetchall()
             for r in rows:
-                new.execute(
-                    "INSERT INTO journal(entry_date,decision,note,created_at) VALUES (?,?,?,?)",
-                    tuple(r)
-                )
+                new.execute("INSERT INTO journal(entry_date,decision,note,created_at) VALUES (?,?,?,?)", tuple(r))
                 migrated += 1
         except sqlite3.Error:
             pass
@@ -165,19 +235,13 @@ def get_journal(limit=100):
 
 
 def save_kite_snapshot(snapshot_time, source, file_name, cash, portfolio_value, row_count, checksum, rows, raw_csv=None):
-    """Append an immutable Kite portfolio snapshot.
-
-    A new row is created for every import; existing snapshots are never
-    updated or replaced. The original CSV bytes are retained in SQLite so
-    the imported broker fact can be audited/recovered later.
-    """
     with connect() as con:
         cur = con.execute(
             """INSERT INTO kite_snapshots
             (snapshot_time,source,file_name,cash,portfolio_value,row_count,checksum,raw_csv,created_at)
             VALUES (?,?,?,?,?,?,?,?,?)""",
-            (snapshot_time, source, file_name, float(cash), float(portfolio_value),
-             int(row_count), checksum, sqlite3.Binary(raw_csv) if raw_csv is not None else None,
+            (snapshot_time, source, file_name, float(cash), float(portfolio_value), int(row_count), checksum,
+             raw_csv if USE_POSTGRES else (sqlite3.Binary(raw_csv) if raw_csv is not None else None),
              datetime.now().isoformat(timespec="seconds")),
         )
         sid = cur.lastrowid
@@ -186,18 +250,16 @@ def save_kite_snapshot(snapshot_time, source, file_name, cash, portfolio_value, 
                 """INSERT INTO kite_holdings
                 (snapshot_id,etf,quantity,average_price,last_price,value,pnl,isin)
                 VALUES (?,?,?,?,?,?,?,?)""",
-                (sid, r["etf"], float(r["quantity"]), r.get("average_price"),
-                 r.get("last_price"), float(r["value"]), r.get("pnl"), r.get("isin")),
+                (sid, r["etf"], float(r["quantity"]), r.get("average_price"), r.get("last_price"),
+                 float(r["value"]), r.get("pnl"), r.get("isin")),
             )
     return sid
 
 
 def update_kite_cash(snapshot_id, cash):
     with connect() as con:
-        con.execute(
-            "UPDATE kite_snapshots SET cash=? WHERE id=?",
-            (float(cash), int(snapshot_id))
-        )
+        con.execute("UPDATE kite_snapshots SET cash=? WHERE id=?", (float(cash), int(snapshot_id)))
+
 
 def latest_kite_snapshot():
     with connect() as con:
@@ -220,16 +282,12 @@ def get_integrity_events(limit=100):
 
 
 def backup_database():
-    """Create a consistent SQLite backup, including WAL contents.
-
-    A raw copy of gors.db is unsafe while SQLite is using WAL mode. The
-    sqlite3 backup API produces a transactionally consistent backup without
-    disturbing the live database.
-    """
+    """Back up local SQLite; Neon provides durable production persistence."""
+    if USE_POSTGRES:
+        return None
     ensure_dirs()
     if not DB_PATH.exists():
         return None
-
     target = BACKUP_DIR / f"gors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
     source = sqlite3.connect(DB_PATH)
     dest = sqlite3.connect(target)
@@ -237,13 +295,13 @@ def backup_database():
         source.backup(dest)
         dest.commit()
     finally:
-        dest.close()
-        source.close()
+        dest.close(); source.close()
     return target
 
 
 def backup_database_if_needed():
-    """Create at most one automatic DB backup per calendar day."""
+    if USE_POSTGRES:
+        return None
     ensure_dirs()
     today = datetime.now().strftime('%Y%m%d')
     existing = sorted(BACKUP_DIR.glob(f"gors_{today}_*.db"))
@@ -253,6 +311,8 @@ def backup_database_if_needed():
 
 
 def db_info():
+    if USE_POSTGRES:
+        return "PostgreSQL (Neon production)", 0
     ensure_dirs()
     size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
-    return str(DB_PATH),size
+    return str(DB_PATH), size
