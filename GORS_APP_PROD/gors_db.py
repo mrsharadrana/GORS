@@ -32,6 +32,55 @@ def _database_url():
 USE_POSTGRES = bool(_database_url())
 
 
+def _rewrite_db_labels(value):
+    """Keep production UI terminology aligned with the configured backend."""
+    if not USE_POSTGRES or not isinstance(value, str):
+        return value
+    replacements = {
+        "SQLite → verified facts + history": "Neon PostgreSQL → verified facts + history",
+        "<small>SQLite</small>": "<small>Persistent DB</small>",
+        "latest verified Kite snapshot from SQLite": "latest verified Kite snapshot from the persistent database",
+        "Latest Kite snapshot automatically loaded from SQLite": "Latest Kite snapshot automatically loaded from the persistent database",
+        "Created consistent SQLite backup after Kite snapshot": "Recorded database persistence after Kite snapshot",
+        "**SQLite = persistent memory and verified snapshots**": "**Neon PostgreSQL = persistent memory and verified snapshots**",
+    }
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+    return value
+
+
+# The existing dashboard predates the persistent-backend switch and contains
+# a few hard-coded SQLite labels. Rewrite only those presentation strings when
+# production is actually using Neon; local SQLite development is unchanged.
+if USE_POSTGRES:
+    try:
+        import streamlit as _st
+
+        _original_markdown = _st.markdown
+        _original_caption = _st.caption
+        _original_info = _st.info
+        _original_success = _st.success
+
+        def _db_markdown(body, *args, **kwargs):
+            return _original_markdown(_rewrite_db_labels(body), *args, **kwargs)
+
+        def _db_caption(body, *args, **kwargs):
+            return _original_caption(_rewrite_db_labels(body), *args, **kwargs)
+
+        def _db_info(body, *args, **kwargs):
+            return _original_info(_rewrite_db_labels(body), *args, **kwargs)
+
+        def _db_success(body, *args, **kwargs):
+            return _original_success(_rewrite_db_labels(body), *args, **kwargs)
+
+        _st.markdown = _db_markdown
+        _st.caption = _db_caption
+        _st.info = _db_info
+        _st.success = _db_success
+    except Exception:
+        pass
+
+
 class _PostgresConnection:
     """Small compatibility wrapper so the existing DB API works on Postgres."""
     def __init__(self, url):
