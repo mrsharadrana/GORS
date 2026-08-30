@@ -379,7 +379,7 @@ st.markdown(
   <div class='eyebrow'>GORS_APP_PROD • DAILY TRADING COCKPIT</div>
   <div class='hero-title'>Frozen GORS Decision</div>
   <div class='hero-sub'>Python strategy is the source of truth. Kite is the portfolio truth. No broker orders are placed by GORS.</div>
-  <div class='hero-sub'><b>🕐 Last Data Updated:</b> {snapshot["snapshot_time"] if snapshot else "No verified snapshot"}</div>
+  <div class='hero-sub'><b>🕐 Last Data Updated:</b> {pd.to_datetime(snapshot["snapshot_time"], utc=True).tz_convert("Asia/Kolkata").strftime("%d-%b-%Y %I:%M %p IST") if snapshot else "No verified snapshot"}</div>
   <div style='margin-top:14px'>
     <span class='pill pill-green'>🟢 BUY / HOLD</span>
     <span class='pill {"pill-green" if risk_state == "RISK-ON" else "pill-amber"}'>{risk_label}</span>
