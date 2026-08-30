@@ -77,7 +77,11 @@ def test_safe_actions_never_exceed_cash():
     assert buys[0].approximate_value == 200.0
 
 
-def test_hold_action_when_kite_matches_engine_target():
+def test_hold_action_when_kite_matches_engine_target(monkeypatch):
+    # This regression test isolates the pre-existing hold behavior from the
+    # Phase 3 RSI exit path. RSI exits are tested independently at their
+    # authoritative thresholds.
+    monkeypatch.setattr(engine, "rsi", lambda s, period=14: pd.Series(50.0, index=s.index))
     panel = sample_panel()
     signal = engine.calculate_gors_signal(panel, as_of=panel.index[-1] + timedelta(days=1))
     rows = [{"etf": etf, "quantity": qty, "last_price": signal["prices"][etf], "value": qty * signal["prices"][etf]} for etf, qty in signal["holdings"].items()]
