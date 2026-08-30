@@ -54,6 +54,26 @@ def test_first_valid_uses_monthly_eligibility():
     assert first in engine.monthly_dates(panel.index) and len(engine.eligible(panel, first)) >= engine.TOP_N
 
 
+def test_phase4_dd_trigger_is_exactly_8_percent():
+    assert engine.risk_control_transition(-0.0799, False) == (False, None)
+    assert engine.risk_control_transition(-0.08, False) == (True, "RISK OFF")
+    assert engine.risk_control_transition(-0.10, False) == (True, "RISK OFF")
+
+
+def test_phase4_recovery_is_75_percent_of_the_8_percent_drawdown():
+    # 75% recovery from an 8% drawdown means risk-on resumes at -2% drawdown.
+    assert engine.risk_control_transition(-0.0201, True) == (True, None)
+    assert engine.risk_control_transition(-0.02, True) == (False, "RISK ON")
+    assert engine.risk_control_transition(-0.01, True) == (False, "RISK ON")
+
+
+def test_phase4_risk_off_target_exposure_is_50_percent():
+    result = engine.run_frozen_backtest(sample_panel(shock=True))
+    risk_off = result["state"].loc[result["state"]["RiskOn"]]
+    assert not risk_off.empty
+    assert set(risk_off["TargetExposure"].round(2)) == {0.50}
+
+
 def test_risk_off_exposure_is_half_when_drawdown_triggered():
     result = engine.run_frozen_backtest(sample_panel(shock=True))
     assert result["state"]["RiskOn"].any() and 0.50 in set(result["state"]["TargetExposure"].round(2))
@@ -78,9 +98,6 @@ def test_safe_actions_never_exceed_cash():
 
 
 def test_hold_action_when_kite_matches_engine_target(monkeypatch):
-    # This regression test isolates the pre-existing hold behavior from the
-    # Phase 3 RSI exit path. RSI exits are tested independently at their
-    # authoritative thresholds.
     monkeypatch.setattr(engine, "rsi", lambda s, period=14: pd.Series(50.0, index=s.index))
     panel = sample_panel()
     signal = engine.calculate_gors_signal(panel, as_of=panel.index[-1] + timedelta(days=1))
