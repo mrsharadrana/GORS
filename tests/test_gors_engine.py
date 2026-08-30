@@ -69,11 +69,12 @@ def test_strategy_top3_comes_from_ranked_state():
 
 
 def test_safe_actions_never_exceed_cash():
-    signal = {"holdings": {}, "top3": ["A"], "prices": {"A": 100.0}, "signal_date": "2026-01-01"}
-    # Existing engine action generator is expected to request a buy; helper must cap it.
-    rows = []
-    safe = build_safe_manual_actions(signal, rows, cash=250.0)
-    assert sum((a.approximate_value or 0.0) for a in safe if a.action == "BUY") <= 250.0 + 1e-9
+    signal = {"holdings": {"A": 10}, "top3": ["A"], "prices": {"A": 100.0}, "signal_date": "2026-01-01", "risk_state": "RISK ON"}
+    safe = build_safe_manual_actions(signal, [], cash=250.0)
+    buys = [a for a in safe if a.action == "BUY"]
+    assert len(buys) == 1
+    assert buys[0].quantity == 2
+    assert buys[0].approximate_value == 200.0
 
 
 def test_hold_action_when_kite_matches_engine_target():
