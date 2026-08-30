@@ -35,6 +35,12 @@ def test_completed_date_selection_ignores_as_of_day():
     panel = sample_panel(); assert engine.latest_completed_common_date(panel, as_of=panel.index[-1]) == panel.index[-2]
 
 
+def test_completed_date_selection_accepts_timezone_aware_as_of():
+    panel = sample_panel()
+    aware_as_of = pd.Timestamp(panel.index[-1], tz="Asia/Kolkata")
+    assert engine.latest_completed_common_date(panel, as_of=aware_as_of) == panel.index[-2]
+
+
 def test_mon100_correction_exact_dates_only():
     idx = pd.to_datetime(["2021-06-17", "2021-06-18", "2021-06-21"])
     raw = {name: pd.Series([10.0, 11.0, 120.0], index=idx) for name in engine.TICKERS}
