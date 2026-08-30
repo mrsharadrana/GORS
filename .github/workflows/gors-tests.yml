@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - codex/implement-frozen-hr5-manual-trading-dashboard
+      - fix/persistent-neon-db
 
 permissions:
   contents: read
@@ -23,5 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest numpy pandas yfinance
+      - name: Compile production Python
+        run: python -m py_compile GORS_APP_PROD/gors_db.py GORS_APP_PROD/pages/Rotation_Signal.py
       - name: Run GORS tests
         run: python -m pytest tests/test_gors_engine.py -q
