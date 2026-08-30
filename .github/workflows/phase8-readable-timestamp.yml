@@ -14,10 +14,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Format dashboard timestamp
         run: |
-          python -c 'from pathlib import Path; p=Path("GORS_APP_PROD/app.py"); t=p.read_text(encoding="utf-8"); old="{snapshot[\\"snapshot_time\\"] if snapshot else \\"No verified snapshot\\"}"; new="{pd.to_datetime(snapshot[\\"snapshot_time\\"], utc=True).tz_convert(\\"Asia/Kolkata\\").strftime(\\"%d-%b-%Y %I:%M %p IST\\") if snapshot else \\"No verified snapshot\\"}"; assert old in t; p.write_text(t.replace(old,new,1),encoding="utf-8")'
+          python -c 'from pathlib import Path; p=Path("GORS_APP_PROD/app.py"); t=p.read_text(encoding="utf-8"); q=chr(34); old="{snapshot["+q+"snapshot_time"+q+"] if snapshot else "+q+"No verified snapshot"+q+"}"; new="{pd.to_datetime(snapshot["+q+"snapshot_time"+q+"], utc=True).tz_convert("+q+"Asia/Kolkata"+q+").strftime("+q+"%d-%b-%Y %I:%M %p IST"+q+") if snapshot else "+q+"No verified snapshot"+q+"}"; assert old in t; p.write_text(t.replace(old,new,1),encoding="utf-8")'
       - name: Add timestamp regression assertion
         run: |
-          python -c 'from pathlib import Path; p=Path("tests/test_phase8_production_smoke.py"); t=p.read_text(encoding="utf-8") if p.exists() else ""; extra="\n\ndef test_timestamp_is_human_readable_ist():\n    text = PAGE.read_text(encoding=\"utf-8\")\n    assert \"Asia/Kolkata\" in text\n    assert \"%d-%b-%Y %I:%M %p IST\" in text\n"; p.write_text(t+extra,encoding="utf-8") if "test_timestamp_is_human_readable_ist" not in t else None'
+          python -c 'from pathlib import Path; p=Path("tests/test_phase8_production_smoke.py"); t=p.read_text(encoding="utf-8") if p.exists() else ""; extra=chr(10)+chr(10)+"def test_timestamp_is_human_readable_ist():"+chr(10)+"    text = PAGE.read_text(encoding="+chr(34)+"utf-8"+chr(34)+")"+chr(10)+"    assert "+chr(34)+"Asia/Kolkata"+chr(34)+" in text"+chr(10)+"    assert "+chr(34)+"%d-%b-%Y %I:%M %p IST"+chr(34)+" in text"+chr(10); p.write_text(t+extra,encoding="utf-8") if "test_timestamp_is_human_readable_ist" not in t else None'
       - name: Commit patch
         run: |
           git config user.name 'github-actions[bot]'
