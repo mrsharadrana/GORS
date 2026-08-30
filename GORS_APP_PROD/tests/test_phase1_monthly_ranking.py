@@ -22,9 +22,9 @@ def _stub_backtest(panel, as_of=None):
     }
 
 
-def test_top3_uses_latest_completed_month_end(monkeypatch):
-    idx = pd.bdate_range("2025-07-01", "2026-02-13")
-    panel = pd.DataFrame(
+def _panel():
+    idx = pd.bdate_range("2025-07-01", "2026-02-27")
+    return pd.DataFrame(
         {
             "A": range(1, len(idx) + 1),
             "B": range(101, 101 + len(idx)),
@@ -35,35 +35,24 @@ def test_top3_uses_latest_completed_month_end(monkeypatch):
         dtype=float,
     )
 
-    # Make D dramatically stronger after the January month-end. If the
-    # dashboard ranked daily, D would enter the Top-3 in February. Phase 1
-    # must continue using the January month-end ranking until the next
-    # monthly rebalance.
+
+def test_top3_uses_latest_completed_month_end(monkeypatch):
+    panel = _panel()
     jan_end = panel.index[panel.index.to_period("M") == "2026-01"][-1]
     panel.loc[panel.index > jan_end, "D"] *= 1000
-
     monkeypatch.setattr("gors_engine.run_frozen_backtest", _stub_backtest)
 
-    signal = calculate_gors_signal(panel, as_of=pd.Timestamp("2026-02-14"))
+    # Mid-February: D is now much stronger, but the dashboard must still
+    # use the January month-end ranking until the next monthly rebalance.
+    signal = calculate_gors_signal(panel.loc[:"2026-02-13"], as_of=pd.Timestamp("2026-02-14"))
 
     assert signal["signal_date"] == "2026-02-13"
     assert signal["ranking_date"] == "2026-01-30"
-    assert signal["top3"] == ["D", "C", "B"]
+    assert signal["top3"] == ["A", "B", "C"]
 
 
 def test_top3_can_change_at_next_monthly_rebalance(monkeypatch):
-    idx = pd.bdate_range("2025-07-01", "2026-02-27")
-    panel = pd.DataFrame(
-        {
-            "A": range(1, len(idx) + 1),
-            "B": range(101, 101 + len(idx)),
-            "C": range(201, 201 + len(idx)),
-            "D": range(301, 301 + len(idx)),
-        },
-        index=idx,
-        dtype=float,
-    )
-
+    panel = _panel()
     jan_end = panel.index[panel.index.to_period("M") == "2026-01"][-1]
     panel.loc[panel.index > jan_end, "D"] *= 1000
     monkeypatch.setattr("gors_engine.run_frozen_backtest", _stub_backtest)
