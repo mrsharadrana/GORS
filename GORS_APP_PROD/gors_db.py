@@ -141,7 +141,7 @@ class _PostgresConnection:
 
     @staticmethod
     def _sql(sql):
-        return sql.replace("?", "%s")
+        return sql.replace("%", "%%").replace("?", "%s")
 
     def execute(self, sql, params=None):
         return self._con.execute(self._sql(sql), params)
