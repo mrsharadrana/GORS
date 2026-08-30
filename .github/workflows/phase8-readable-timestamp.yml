@@ -1,0 +1,52 @@
+name: Phase 8 readable timestamp patch
+
+on:
+  push:
+    branches: [fix/phase8-readable-timestamp]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format dashboard timestamp
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('GORS_APP_PROD/app.py')
+          text = path.read_text(encoding='utf-8')
+          if 'def format_snapshot_time(' not in text:
+              marker = 'def money(x):\n'
+              helper = '''def format_snapshot_time(value):\n    """Render persisted snapshot timestamps as human-readable IST."""\n    if not value:\n        return "No verified snapshot"\n    try:\n        dt = pd.to_datetime(value, utc=True).tz_convert("Asia/Kolkata")\n        return dt.strftime("%d-%b-%Y %I:%M %p IST")\n    except Exception:\n        return str(value)\n\n\n'''
+              if marker not in text:\n                  raise SystemExit('money helper marker not found')\n              text = text.replace(marker, helper + marker, 1)
+          old = '<div class=\'hero-sub\'><b>🕐 Last Data Updated:</b> {snapshot["snapshot_time"] if snapshot else "No verified snapshot"}</div>'
+          new = '<div class=\'hero-sub\'><b>🕐 Last Data Updated:</b> {format_snapshot_time(snapshot["snapshot_time"]) if snapshot else "No verified snapshot"}</div>'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('timestamp line not found')
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Add timestamp regression assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_phase8_production_smoke.py')
+          if path.exists():
+              text = path.read_text(encoding='utf-8')
+              extra = '''\n\ndef test_timestamp_is_human_readable_ist():\n    text = PAGE.read_text(encoding="utf-8")\n    assert "format_snapshot_time" in text\n    assert "Asia/Kolkata" in text\n    assert "%d-%b-%Y %I:%M %p IST" in text\n'''
+              if 'test_timestamp_is_human_readable_ist' not in text:
+                  path.write_text(text.rstrip() + extra, encoding='utf-8')
+          PY
+      - name: Commit patch and remove workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+users.noreply.github.com'
+          git add GORS_APP_PROD/app.py tests/test_phase8_production_smoke.py
+          git commit -m 'Fix human-readable dashboard timestamp' || true
+          git rm .github/workflows/phase8-readable-timestamp.yml
+          git commit -m 'Remove one-time timestamp patch workflow'
+          git push
