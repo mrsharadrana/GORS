@@ -94,7 +94,8 @@ st.markdown(
     <div class='manual-title {risk_class}'>{signal['risk_state']}</div>
     <div class='manual-sub'>Signal date: <b>{signal['signal_date']}</b> (latest completed common trading date)</div>
     <div class='manual-sub'>Frozen config: HoldRank {HOLD_RANK} • Drawdown {DD_TRIGGER:.0%} • Recovery {RECOVERY_FRACTION:.0%} of trigger • Risk-off {RISK_OFF_EXPOSURE:.0%} • Cost {PRODUCTION_COST:.2%} • RSI(14) {RSI_EXIT}/{RSI_FULL_EXIT}</div>
-    </div>""", unsafe_allow_html=True)
+    </div>""",
+    unsafe_allow_html=True)
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Target Exposure", f"{signal['target_exposure_pct']:.0%}", format_money(target_exposure_value))
@@ -104,10 +105,11 @@ c4.metric("Current Drawdown", f"{signal['current_drawdown']:.2%}")
 c5.metric("Last Update", last_update)
 
 st.subheader("Top 3")
-top3_df = pd.DataFrame(signal["top3_table"])
-top3_df["Signal/Score"] = top3_df["Signal/Score"].map(lambda x: f"{x:.2%}")
-top3_df["Price"] = top3_df["Price"].map(lambda x: f"₹{x:,.2f}")
-st.dataframe(top3_df[["Rank", "ETF", "Signal/Score", "Price", "Status"]], use_container_width=True, hide_index=True)
+ranks = strategy_top3(signal)
+rank_rows = []
+for rank, etf in enumerate(ranks[:3], start=1):
+    rank_rows.append({"Rank": rank, "ETF": etf, "Price": f"₹{float(signal['prices'].get(etf, 0)):,.2f}", "Status": "Target Top-3"})
+st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
 
 st.subheader("Current holdings")
 if snapshot and not holdings.empty:
