@@ -16,15 +16,18 @@ IST = ZoneInfo("Asia/Kolkata")
 
 def main() -> None:
     init_db()
-    now = datetime.now(IST)
+    started_at = datetime.now(IST)
     panel = load_market_data()
-    signal = calculate_gors_signal(panel, as_of=now)
+    signal = calculate_gors_signal(panel, as_of=started_at)
     top3 = signal.get("top3", [])[:3]
     risk_state = signal.get("risk_state", "UNKNOWN")
     signal_date = signal["signal_date"]
-    updated_at = now.isoformat(timespec="seconds")
+
+    # Stamp the completed refresh only after Yahoo data and GORS calculation finish.
+    completed_at = datetime.now(IST)
+    updated_at = completed_at.isoformat(timespec="seconds")
     note = (
-        f"Automated Yahoo Finance refresh at {updated_at} ({IST.key}); "
+        f"Automated Yahoo Finance refresh completed at {updated_at} ({IST.key}); "
         f"signal date={signal_date}; Top-3={','.join(top3)}; "
         f"risk={risk_state}."
     )
