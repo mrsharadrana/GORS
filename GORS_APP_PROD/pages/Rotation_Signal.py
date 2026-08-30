@@ -1,134 +1,144 @@
-import streamlit as st
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
 import pandas as pd
+import streamlit as st
 
-from gors_engine import get_current_signal
-from gors_db import get_decisions, latest_kite_snapshot, save_decision
+from gors_db import get_decisions, latest_kite_snapshot
+from gors_dashboard_helpers import build_safe_manual_actions, strategy_top3
+from gors_engine import (
+    DD_TRIGGER, HOLD_RANK, RECOVERY_FRACTION, RISK_OFF_EXPOSURE,
+    RSI_FULL_EXIT, RSI_EXIT, PRODUCTION_COST, build_holdings_table,
+    calculate_gors_signal, load_market_data,
+)
 
-st.set_page_config(page_title="GORS Manual Trading", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="GORS HR5 Manual Dashboard", page_icon="🔄", layout="wide")
 
 st.markdown("""
 <style>
 .stApp { background:#0b0f17; color:#f8fafc; }
-.block-container { max-width:1500px; padding:1.6rem 2rem 3rem; }
-.hero { border:1px solid #334155; border-radius:18px; padding:24px; background:#151c29; margin-bottom:18px; }
-.hero-title { font-size:2rem; font-weight:900; }
-.hero-sub { color:#94a3b8; margin-top:4px; }
-.action { border:2px solid #475569; border-radius:16px; padding:22px; background:#111827; margin:14px 0 20px; }
-.action-title { font-size:1.05rem; color:#94a3b8; font-weight:800; letter-spacing:.04em; }
-.action-main { font-size:1.8rem; font-weight:950; margin-top:8px; }
-.muted { color:#94a3b8; }
-.small { font-size:.88rem; }
+.block-container { max-width:none; padding:2rem 2.5rem; }
+.manual-hero { border:1px solid #334155; border-radius:18px; padding:24px; background:#111827; margin-bottom:18px; }
+.manual-title { font-size:2.0rem; font-weight:950; color:#f8fafc; }
+.manual-sub { color:#cbd5e1; margin-top:6px; }
+.action-box { border:3px solid #fbbf24; border-radius:18px; padding:24px; background:#422006; margin:20px 0; }
+.action-title { font-size:2.2rem; font-weight:950; color:#fef3c7; }
+.action-line { font-size:1.15rem; color:#fffbeb; margin-top:8px; }
+.safe-box { border:2px solid #22c55e; border-radius:18px; padding:24px; background:#052e16; margin:20px 0; }
+.risk-on { color:#86efac; font-weight:950; }
+.risk-off { color:#fbbf24; font-weight:950; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='hero'><div class='hero-title'>🔄 GORS Manual Trading Dashboard</div><div class='hero-sub'>Frozen HR5 signal • Top-3 • drawdown risk control • manual execution only</div></div>", unsafe_allow_html=True)
 
-if st.button("🔄 Refresh signal", type="primary"):
-    st.cache_data.clear()
-    st.rerun()
+def top3(row):
+    return [x for x in (row.get("top1"), row.get("top2"), row.get("top3")) if x]
 
-@st.cache_data(ttl=900, show_spinner="Calculating frozen GORS signal from completed market data…")
-def load_signal():
-    return get_current_signal()
 
-try:
-    signal = load_signal()
-except Exception as exc:
-    st.error(f"GORS signal unavailable: {exc}")
-    st.info("No action should be taken until the frozen engine completes successfully. This dashboard never places broker orders.")
-    st.stop()
+def build_rotation_history(decisions):
+    ordered = list(reversed(decisions))
+    result = []
+    previous = None
+    for current in ordered:
+        current_top = top3(current)
+        if previous is None:
+            signal, from_etf, to_etf, reason = "BASELINE", "—", "—", "First recorded GORS decision"
+        else:
+            previous_top = top3(previous)
+            entered = [x for x in current_top if x not in previous_top]
+            exited = [x for x in previous_top if x not in current_top]
+            if current_top == previous_top:
+                signal, from_etf, to_etf, reason = "NO ROTATION", "—", "—", "Top-3 composition/order unchanged"
+            else:
+                signal = "ROTATION"
+                from_etf = ", ".join(exited) if exited else "—"
+                to_etf = ", ".join(entered) if entered else "—"
+                reason = current.get("note") or "GORS Top-3 changed"
+        result.append({"Date": current.get("decision_date"), "Signal": signal, "From": from_etf,
+                       "To": to_etf, "Top 3": " / ".join(current_top) if current_top else "—", "Reason": reason})
+        previous = current
+    return list(reversed(result))
 
-risk = signal["risk_state"]
-target = signal["target_exposure"]
-actual = signal["actual_exposure"]
-dd = signal["drawdown"]
-holdings = pd.DataFrame(signal["holdings"])
-top3 = pd.DataFrame(signal["top3"])
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Signal Date", signal["signal_date"])
-c2.metric("Risk State", risk)
-c3.metric("Target Exposure", f"{target:.1%}")
-c4.metric("Actual Exposure", f"{actual:.1%}")
-c5.metric("Drawdown", f"{dd:.2%}")
+def format_money(value):
+    return f"₹{float(value):,.0f}"
 
-st.markdown("<div class='action'><div class='action-title'>TODAY'S ACTION</div><div class='action-main'>Review target holdings below and manually execute only the required Kite changes.</div><div class='muted small'>GORS calculates the decision; it does not place, modify, or cancel broker orders.</div></div>", unsafe_allow_html=True)
 
-st.subheader("Frozen HR5 Signal")
-left, right = st.columns([1, 1])
-with left:
-    st.write("**Configuration**")
-    st.write("HoldRank 5 • Top-3 • RSI(14) 85/100 • DD trigger 8% • Recovery 75% • Risk-off exposure 50% • Cost 0.25%")
-    st.write(f"**Equity:** ₹{signal['equity']:,.2f}  |  **Cash:** ₹{signal['cash']:,.2f}")
-with right:
-    st.write("**Research metrics**")
-    m = signal["metrics"]
-    a, b, c = st.columns(3)
-    a.metric("CAGR", f"{m['CAGR']:.2%}")
-    b.metric("Max DD", f"{m['MaxDD']:.2%}")
-    c.metric("Sharpe", f"{m['Sharpe']:.3f}")
-    st.caption(f"Trades: {signal['trades']} • Annual turnover: {signal['annual_turnover']:.2f}x • Risk events: {signal['risk_events']}")
-
-st.subheader("Top 3 — Frozen Engine")
-if not top3.empty:
-    top3["126D Return"] = top3["126D Return"].map(lambda x: f"{x:.2%}")
-    top3["Status"] = top3["Held"].map(lambda x: "HOLD" if x else "TARGET")
-    st.dataframe(top3[["ETF", "126D Return", "Status"]], use_container_width=True, hide_index=True)
-else:
-    st.warning("No eligible Top-3 returned by the frozen engine.")
-
-st.subheader("Target Holdings")
-if holdings.empty:
-    st.info("Frozen engine currently has no invested holdings.")
-else:
-    holdings["Quantity"] = holdings["Quantity"].map(lambda x: round(float(x), 4))
-    st.dataframe(holdings, use_container_width=True, hide_index=True)
+st.markdown("<div class='manual-title'>🔄 Frozen HR5 Manual Trading Dashboard</div>", unsafe_allow_html=True)
+st.caption("Signal-only dashboard. No broker orders are placed or routed by GORS.")
 
 snapshot, kite_rows = latest_kite_snapshot()
-if snapshot:
-    st.subheader("Kite Reconciliation")
-    kite = pd.DataFrame(kite_rows)
-    if not kite.empty:
-        kite_qty = {str(r["etf"]): float(r["quantity"]) for r in kite_rows}
-        target_qty = {str(r["ETF"]): float(r["Quantity"]) for r in signal["holdings"]}
-        names = sorted(set(kite_qty) | set(target_qty))
-        recon = []
-        for name in names:
-            kq = kite_qty.get(name, 0.0)
-            tq = target_qty.get(name, 0.0)
-            delta = tq - kq
-            recon.append({"ETF": name, "Kite Qty": kq, "Target Qty": tq, "Delta": delta, "Action": "BUY" if delta > 1e-9 else "SELL" if delta < -1e-9 else "HOLD"})
-        recon_df = pd.DataFrame(recon)
-        st.caption(f"Latest Kite snapshot: {snapshot['snapshot_time']} • source: {snapshot['source']}")
-        st.dataframe(recon_df, use_container_width=True, hide_index=True)
-        changes = recon_df[recon_df["Action"] != "HOLD"]
-        if changes.empty:
-            st.success("Kite holdings match the frozen engine target. TODAY'S ACTION: HOLD.")
-        else:
-            st.warning("Manual changes are indicated above. Verify quantities and prices in Kite before placing any order.")
+decisions = get_decisions(limit=250)
+previous_risk = str(decisions[0].get("risk_state", "RISK ON")).replace("-", " ") if decisions else "RISK ON"
+
+try:
+    market_data = load_market_data()
+    signal = calculate_gors_signal(market_data, as_of=datetime.now(timezone.utc).date())
+except Exception as exc:
+    st.error(f"Cannot produce a safe GORS signal: {exc}")
+    st.info("The dashboard intentionally refuses to use partial or incomplete market data.")
+    st.stop()
+
+holdings = build_holdings_table(kite_rows, signal["prices"])
+holdings_value = float(holdings["Portfolio Value"].sum()) if not holdings.empty else 0.0
+cash = float(snapshot["cash"]) if snapshot else 0.0
+equity = holdings_value + cash
+target_exposure_value = equity * float(signal["target_exposure_pct"])
+actual_exposure_pct = holdings_value / equity if equity else 0.0
+last_update = snapshot["snapshot_time"] if snapshot else "No Kite snapshot"
+risk_class = "risk-on" if signal["risk_state"] == "RISK ON" else "risk-off"
+
+st.markdown(
+    f"""<div class='manual-hero'>
+    <div class='manual-title {risk_class}'>{signal['risk_state']}</div>
+    <div class='manual-sub'>Signal date: <b>{signal['signal_date']}</b> (latest completed common trading date)</div>
+    <div class='manual-sub'>Frozen config: HoldRank {HOLD_RANK} • Drawdown {DD_TRIGGER:.0%} • Recovery {RECOVERY_FRACTION:.0%} of trigger • Risk-off {RISK_OFF_EXPOSURE:.0%} • Cost {PRODUCTION_COST:.2%} • RSI(14) {RSI_EXIT}/{RSI_FULL_EXIT}</div>
+    </div>""",
+    unsafe_allow_html=True)
+
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Target Exposure", f"{signal['target_exposure_pct']:.0%}", format_money(target_exposure_value))
+c2.metric("Actual Exposure", f"{actual_exposure_pct:.0%}", format_money(holdings_value))
+c3.metric("Portfolio Equity", format_money(equity))
+c4.metric("Current Drawdown", f"{signal['current_drawdown']:.2%}")
+c5.metric("Last Update", last_update)
+
+st.subheader("Top 3")
+ranks = strategy_top3(signal)
+rank_rows = []
+for rank, etf in enumerate(ranks[:3], start=1):
+    rank_rows.append({"Rank": rank, "ETF": etf, "Price": f"₹{float(signal['prices'].get(etf, 0)):,.2f}", "Status": "Target Top-3"})
+st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
+
+st.subheader("Current holdings")
+if snapshot and not holdings.empty:
+    show_holdings = holdings.copy()
+    show_holdings["Price"] = show_holdings["Price"].map(lambda x: f"₹{x:,.2f}")
+    show_holdings["Portfolio Value"] = show_holdings["Portfolio Value"].map(format_money)
+    show_holdings["Weight"] = show_holdings["Weight"].map(lambda x: f"{x:.1%}")
+    st.dataframe(show_holdings[["ETF", "Quantity", "Price", "Portfolio Value", "Weight"]], use_container_width=True, hide_index=True)
+else:
+    st.warning("No Kite holdings snapshot is available. Quantity/value-specific actions cannot be determined.")
+
+st.markdown("### TODAY'S ACTION")
+if signal["risk_state"] == "RISK OFF":
+    st.markdown("<div class='action-box'><div class='action-title'>RISK-OFF</div><div class='action-line'>Target portfolio exposure is reduced to approximately 50%.</div></div>", unsafe_allow_html=True)
+elif previous_risk == "RISK OFF" and signal["risk_state"] == "RISK ON":
+    st.markdown("<div class='action-box'><div class='action-title'>RISK-ON</div><div class='action-line'>Normal 100% target exposure is restored.</div></div>", unsafe_allow_html=True)
+
+actions = build_safe_manual_actions(signal, kite_rows, cash) if snapshot else []
+if actions:
+    action_rows = pd.DataFrame([a.__dict__ for a in actions]).rename(columns={"etf":"ETF", "action":"Action", "quantity":"Quantity", "approximate_value":"Approximate Value", "reason":"Reason", "signal_date":"Signal Date"})
+    action_rows["Approximate Value"] = action_rows["Approximate Value"].map(lambda x: "—" if pd.isna(x) else format_money(x))
+    st.dataframe(action_rows, use_container_width=True, hide_index=True)
+else:
+    st.markdown("<div class='safe-box'><div class='action-title'>HOLD</div><div class='action-line'>HOLD — No GORS action required.</div><div class='action-line'>Signal date: " + signal["signal_date"] + "</div></div>", unsafe_allow_html=True)
+
+st.caption("Manual execution boundary: verify Kite prices, funds and quantities yourself. This page does not contain broker order execution code.")
+
+with st.expander("Rotation history from saved decisions"):
+    if decisions:
+        st.dataframe(pd.DataFrame(build_rotation_history(decisions)), use_container_width=True, hide_index=True)
     else:
-        st.info("Latest Kite snapshot has no holdings rows.")
-else:
-    st.info("No Kite snapshot has been imported yet. Target holdings above remain the source of truth for the manual decision.")
-
-st.subheader("Recent Engine Events")
-events = pd.DataFrame(signal["events"])
-if not events.empty:
-    st.dataframe(events, use_container_width=True, hide_index=True)
-else:
-    st.caption("No recent engine events.")
-
-st.subheader("Recorded Decision History")
-decisions = get_decisions(limit=100)
-if decisions:
-    st.dataframe(pd.DataFrame(decisions), use_container_width=True, hide_index=True)
-else:
-    st.caption("No decisions recorded yet.")
-
-with st.expander("Save today's calculated decision"):
-    note = st.text_input("Optional note", value="Frozen HR5 engine signal")
-    if st.button("Save decision"):
-        save_decision(signal["signal_date"], "RISK_OFF" if risk == "RISK OFF" else "RISK_ON", risk, [x["ETF"] for x in signal["top3"]], note)
-        st.success("Decision saved.")
-
-st.caption("Manual-only boundary: this page reads market data and stored Kite snapshots, calculates the frozen GORS decision, and never sends broker orders.")
+        st.info("No GORS decision history is available yet.")

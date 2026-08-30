@@ -1,11 +1,11 @@
 GORS_APP_PROD
-Release: Daily Snapshot Reuse
-Version: PROD-DSR-1
+Release: Frozen HR5 Manual Trading Dashboard
+Version: PROD-HR5-1
 Strategy: FROZEN
 
 Change:
-- Latest verified Kite snapshot is automatically loaded from SQLite on every run.
-- New Holdings.csv is optional and only needed after the actual Kite portfolio changes.
-- Re-uploading the same CSV does not create a duplicate snapshot.
-- Kite cash remains editable from the left panel and is persisted to the latest snapshot.
-- Historical snapshots and decisions are retained.
+- Rotation Signal now shows the frozen HR5 manual trading dashboard.
+- Signals use the latest completed common market-data date and refuse incomplete data.
+- Dashboard shows RISK ON/OFF, target/actual exposure, equity, drawdown and last Kite update.
+- Top-3, holdings and TODAY'S ACTION are generated from the GORS Python engine.
+- No broker order execution or Kite API order routing is included.
