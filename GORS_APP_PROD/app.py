@@ -342,7 +342,7 @@ with st.sidebar:
     st.markdown("**Source of truth**")
     st.caption("🧠 GORS → Python strategy decision")
     st.caption("💰 Kite → actual portfolio + cash")
-    st.caption("🗄️ SQLite → verified facts + history")
+    st.caption("🗄️ Neon PostgreSQL → verified facts + history")
     st.divider()
     st.markdown("**Frozen parameters**")
     st.caption("Top 3 • Hold Rank 5")
@@ -420,9 +420,9 @@ for i, (col, etf) in enumerate(zip(cols, TOP_ETFS), start=1):
 # -----------------------------
 # Kite import + status
 # -----------------------------
-st.markdown("""<div class='workflow'><div class='workflow-step'><span>1</span><b>Load latest Kite snapshot</b><small>SQLite</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>2</span><b>Reconcile</b><small>Kite vs GORS</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>3</span><b>Review order ticket</b><small>BUY / SELL / HOLD</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>4</span><b>Execute manually</b><small>Verify in Kite</small></div></div>""", unsafe_allow_html=True)
+st.markdown("""<div class='workflow'><div class='workflow-step'><span>1</span><b>Load latest Kite snapshot</b><small>Persistent DB</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>2</span><b>Reconcile</b><small>Kite vs GORS</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>3</span><b>Review order ticket</b><small>BUY / SELL / HOLD</small></div><div class='workflow-arrow'>→</div><div class='workflow-step'><span>4</span><b>Execute manually</b><small>Verify in Kite</small></div></div>""", unsafe_allow_html=True)
 st.markdown("<div class='section-title'>📥 Step 1 — Kite Portfolio Snapshot</div>", unsafe_allow_html=True)
-st.markdown("<div class='section-sub'>GORS automatically uses the <b>latest verified Kite snapshot from SQLite</b>. You only need to upload a new Holdings CSV when your actual Kite portfolio changes (for example, after a trade). Daily runs do not require a new CSV.</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-sub'>GORS automatically uses the <b>latest verified Kite snapshot from the persistent database</b>. You only need to upload a new Holdings CSV when your actual Kite portfolio changes (for example, after a trade). Daily runs do not require a new CSV.</div>", unsafe_allow_html=True)
 
 uploaded = st.file_uploader("📄 Upload New Kite Holdings CSV (only after a portfolio change)", type=["csv"], key="kite_csv", help="Optional. Export a fresh Holdings CSV from Kite only when the actual portfolio has changed.")
 
@@ -453,7 +453,7 @@ if uploaded is not None:
                 )
                 record_integrity("INFO", "kite_snapshot", f"Saved complete Kite snapshot {sid}: {len(kite_rows)} instruments, CSV checksum {checksum[:12]}…")
                 backup = backup_database()
-                record_integrity("INFO", "db_backup", f"Created consistent SQLite backup after Kite snapshot {sid}: {backup.name if backup else 'none'}")
+                record_integrity("INFO", "db_backup", f"Recorded database persistence after Kite snapshot {sid}: {backup.name if backup else 'none'}")
                 st.success(f"Snapshot #{sid} saved permanently with complete Kite holdings + original CSV. DB backup created.")
                 st.rerun()
     except Exception as e:
@@ -461,7 +461,7 @@ if uploaded is not None:
 
 if snapshot:
     st.markdown(
-        f"<div class='kite-box'><b>🟢 Latest Kite snapshot automatically loaded from SQLite</b><br>"
+        f"<div class='kite-box'><b>🟢 Latest Kite snapshot automatically loaded from the persistent database</b><br>"
         f"Snapshot #{snapshot['id']} • {snapshot['snapshot_time']} • {snapshot['file_name']} • checksum {str(snapshot['checksum'])[:12]}…<br>"
         f"<span style='font-size:.9rem'>This saved portfolio is used for Blocks B & C until you upload a newer Kite snapshot.</span></div>",
         unsafe_allow_html=True,
