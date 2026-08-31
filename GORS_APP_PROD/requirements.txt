@@ -4,3 +4,4 @@ numpy==2.5.2
 yfinance==1.7.0
 psycopg[binary]==3.3.4
 Authlib==1.8.0
+httpx==0.28.1
