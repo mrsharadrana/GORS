@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
 from gors_db import get_decisions, get_integrity_events, latest_kite_snapshot
-from gors_dashboard_helpers import build_safe_manual_actions, strategy_top3
+from gors_dashboard_helpers import build_safe_manual_actions
+from gors_decision import get_current_gors_decision
 from gors_engine import (
     DD_TRIGGER, HOLD_RANK, RECOVERY_FRACTION, RISK_OFF_EXPOSURE,
-    RSI_FULL_EXIT, RSI_EXIT, build_holdings_table, calculate_gors_signal,
-    load_market_data,
+    RSI_FULL_EXIT, RSI_EXIT, build_holdings_table,
 )
 
 st.set_page_config(page_title="GORS HR5", page_icon="🔄", layout="wide")
@@ -41,8 +40,8 @@ snapshot, kite_rows = latest_kite_snapshot()
 decisions = get_decisions(limit=250)
 integrity = get_integrity_events(limit=10)
 try:
-    market_data = load_market_data()
-    signal = calculate_gors_signal(market_data, as_of=datetime.now(timezone.utc).date())
+    decision = get_current_gors_decision()
+    signal = decision["signal"]
 except Exception as exc:
     st.error(f"Cannot produce a safe GORS signal: {exc}")
     st.stop()
@@ -55,14 +54,14 @@ actual = holdings_value / equity if equity else 0.0
 last_update = snapshot["snapshot_time"] if snapshot else "No portfolio snapshot"
 
 st.info(f"Last Data Updated: {last_update}")
-st.markdown(f"### {signal['risk_state']}")
-st.caption(f"Signal date: {signal['signal_date']} • Ranking date: {signal['ranking_date']} • HoldRank {HOLD_RANK} • DD {DD_TRIGGER:.0%} • Risk-off {RISK_OFF_EXPOSURE:.0%} • Recovery {RECOVERY_FRACTION:.0%} • RSI {RSI_EXIT}/{RSI_FULL_EXIT}")
+st.markdown(f"### {decision['risk_state']}")
+st.caption(f"Signal date: {decision['signal_date']} • Ranking date: {decision['ranking_date']} • HoldRank {HOLD_RANK} • DD {DD_TRIGGER:.0%} • Risk-off {RISK_OFF_EXPOSURE:.0%} • Recovery {RECOVERY_FRACTION:.0%} • RSI {RSI_EXIT}/{RSI_FULL_EXIT}")
 
 c1,c2,c3,c4 = st.columns(4)
-c1.metric("Target Exposure", f"{signal['target_exposure_pct']:.0%}", money(equity * float(signal['target_exposure_pct'])))
+c1.metric("Target Exposure", f"{decision['target_exposure_pct']:.0%}", money(equity * decision['target_exposure_pct']))
 c2.metric("Actual Exposure", f"{actual:.0%}", money(holdings_value))
 c3.metric("Portfolio Equity", money(equity))
-c4.metric("Current Drawdown", f"{signal['current_drawdown']:.2%}")
+c4.metric("Current Drawdown", f"{decision['current_drawdown']:.2%}")
 
 st.subheader("Today's Decision")
 actions = build_safe_manual_actions(signal, kite_rows, cash) if snapshot else []
@@ -71,7 +70,7 @@ if actions:
     df["Value"] = df["Value"].map(lambda x: "—" if pd.isna(x) else money(x))
     st.dataframe(df, use_container_width=True, hide_index=True)
 else:
-    st.success(f"HOLD — No GORS action required. Signal date: {signal['signal_date']}")
+    st.success(f"HOLD — No GORS action required. Signal date: {decision['signal_date']}")
 
 st.subheader("Top 3 Ranking")
 rank_rows=[]
@@ -81,7 +80,7 @@ for row in signal.get("top3_table", [])[:3]:
 st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
 
 st.subheader("Portfolio Drift")
-drift_target=float(signal["target_exposure_pct"])
+drift_target=float(decision["target_exposure_pct"])
 drift=actual-drift_target
 if abs(drift) < 0.02:
     st.success(f"ON TARGET — exposure drift {drift:+.1%}")
@@ -92,17 +91,17 @@ else:
 
 with st.expander("Risk Control"):
     r1,r2,r3 = st.columns(3)
-    r1.metric("Risk State", signal["risk_state"])
-    r2.metric("Drawdown", f"{signal['current_drawdown']:.2%}")
-    r3.metric("Target Exposure", f"{signal['target_exposure_pct']:.0%}")
+    r1.metric("Risk State", decision["risk_state"])
+    r2.metric("Drawdown", f"{decision['current_drawdown']:.2%}")
+    r3.metric("Target Exposure", f"{decision['target_exposure_pct']:.0%}")
     if not signal.get("events", pd.DataFrame()).empty:
         st.dataframe(signal["events"].tail(20), use_container_width=True, hide_index=True)
     else:
         st.caption("No risk-state transition recorded in the current backtest window.")
 
 with st.expander("Data Health"):
-    st.write(f"**Signal date:** {signal['signal_date']}")
-    st.write(f"**Ranking date:** {signal['ranking_date']}")
+    st.write(f"**Signal date:** {decision['signal_date']}")
+    st.write(f"**Ranking date:** {decision['ranking_date']}")
     st.write(f"**Portfolio snapshot:** {last_update}")
     st.write(f"**Universe prices:** {len(signal.get('prices', {}))}")
     if integrity:

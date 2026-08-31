@@ -7,6 +7,7 @@ import streamlit as st
 
 from gors_db import *
 from auth import logout_button, require_google_login
+from gors_decision import get_current_gors_decision
 
 # ============================================================
 # GORS_APP_PROD — DAILY TRADING COCKPIT
@@ -156,8 +157,27 @@ def build_execution_ticket(recon):
     return pd.DataFrame(rows)
 
 def calculate_gors_decision(capital):
-    risk_state="RISK-ON"; top_etfs=list(TOP_ETFS); target_exposure=float(capital) if risk_state=="RISK-ON" else float(capital)*RISK_OFF_EXPOSURE; target_each=target_exposure/len(top_etfs)
-    return {"risk_state":risk_state,"top_etfs":top_etfs,"target_exposure":target_exposure,"target_each":target_each}
+    """Return the frozen engine decision used by the main dashboard.
+
+    The dashboard no longer owns Top-3 or risk-state logic. Those values come
+    exclusively from the shared GORS decision service.
+    """
+    decision = get_current_gors_decision()
+    top_etfs = list(decision["top3"])
+    risk_state = "RISK-ON" if decision["risk_state"] == "RISK ON" else "RISK-OFF"
+    target_exposure = float(capital) * float(decision["target_exposure_pct"])
+    target_each = target_exposure / len(top_etfs)
+    return {
+        "risk_state": risk_state,
+        "top_etfs": top_etfs,
+        "target_exposure": target_exposure,
+        "target_each": target_each,
+        "signal": decision["signal"],
+        "signal_date": decision["signal_date"],
+        "ranking_date": decision["ranking_date"],
+        "target_exposure_pct": decision["target_exposure_pct"],
+        "current_drawdown": decision["current_drawdown"],
+    }
 
 snapshot,kite_rows=latest_kite_snapshot()
 latest_market_refresh=get_decisions(limit=1)
