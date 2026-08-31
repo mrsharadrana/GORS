@@ -8,6 +8,7 @@ EXPECTED = {
     "numpy": "2.5.2",
     "yfinance": "1.7.0",
     "psycopg": "3.3.4",
+    "Authlib": "1.8.0",
 }
 
 
