@@ -9,6 +9,7 @@ EXPECTED = {
     "yfinance": "1.7.0",
     "psycopg": "3.3.4",
     "Authlib": "1.8.0",
+    "httpx": "0.28.1",
 }
 
 
