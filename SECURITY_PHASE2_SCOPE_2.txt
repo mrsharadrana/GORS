@@ -1,0 +1,1 @@
+Phase 2: GitHub Actions permissions and secret-scope hardening.
