@@ -1,1 +1,0 @@
-Phase 2 changes are isolated to GitHub Actions security hardening.
