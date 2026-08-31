@@ -1,5 +1,0 @@
-[server]
-headless = true
-
-# Google OIDC credentials and redirect URI must be supplied through
-# Streamlit Secrets, not committed to this repository.
