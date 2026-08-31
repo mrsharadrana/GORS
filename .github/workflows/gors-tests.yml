@@ -8,6 +8,7 @@ on:
       - main
       - codex/implement-frozen-hr5-manual-trading-dashboard
       - fix/persistent-neon-db
+      - phase2-fix-real
 
 permissions:
   contents: read
@@ -30,6 +31,6 @@ jobs:
       - name: Secret scan
         run: python scripts/secret_scan.py
       - name: Compile production Python
-        run: python -m py_compile GORS_APP_PROD/app.py GORS_APP_PROD/gors_decision.py GORS_APP_PROD/gors_db.py GORS_APP_PROD/pages/Rotation_Signal.py GORS_APP_PROD/pages/History.py GORS_APP_PROD/rotation_history.py
+        run: python -m py_compile GORS_APP_PROD/app.py GORS_APP_PROD/gors_decision.py GORS_APP_PROD/gors_db.py GORS_APP_PROD/cutoff_safe_backtest.py GORS_APP_PROD/pages/Rotation_Signal.py GORS_APP_PROD/pages/History.py GORS_APP_PROD/rotation_history.py
       - name: Run GORS tests
-        run: python -m pytest tests/test_gors_engine.py tests/test_phase7_dashboard.py tests/test_etf_rotation_history.py tests/test_rotation_history_page.py tests/test_actions_hardening.py tests/test_dependency_pins.py tests/test_decision_source.py -q
+        run: python -m pytest tests/test_gors_engine.py tests/test_phase2_cutoff.py tests/test_phase7_dashboard.py tests/test_etf_rotation_history.py tests/test_rotation_history_page.py tests/test_actions_hardening.py tests/test_dependency_pins.py tests/test_decision_source.py -q
