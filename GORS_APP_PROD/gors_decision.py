@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from gors_engine import (
     calculate_gors_signal,
     latest_completed_common_date,
@@ -23,9 +25,10 @@ def _normalize_as_of(as_of):
     if as_of is None:
         return datetime.now(INDIA_TZ).replace(tzinfo=None)
 
-    timestamp = datetime.fromisoformat(as_of) if isinstance(as_of, str) else as_of
-    timestamp = datetime.fromtimestamp(timestamp.timestamp(), INDIA_TZ) if timestamp.tzinfo else timestamp
-    return timestamp.replace(tzinfo=None)
+    timestamp = pd.Timestamp(as_of)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(INDIA_TZ).tz_localize(None)
+    return timestamp.to_pydatetime()
 
 
 def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
@@ -48,7 +51,7 @@ def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
     scoped_panel = market_data.loc[market_data.index <= cutoff].copy()
     # calculate_gors_signal interprets as_of as a boundary strictly after the
     # desired market date, so use the following calendar day to retain cutoff.
-    signal = calculate_gors_signal(scoped_panel, as_of=cutoff + __import__("pandas").Timedelta(days=1))
+    signal = calculate_gors_signal(scoped_panel, as_of=cutoff + pd.Timedelta(days=1))
 
     raw_top3 = list(signal.get("top3", []))
     if len(raw_top3) != 3:
