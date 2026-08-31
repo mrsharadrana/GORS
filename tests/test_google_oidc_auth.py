@@ -14,11 +14,13 @@ def test_google_oidc_guard_is_wired_before_db_initialization():
     assert guard < init_db
 
 
-def test_auth_module_uses_native_default_streamlit_oidc_and_logout():
+def test_auth_module_uses_callback_based_default_streamlit_oidc_and_logout():
     source = AUTH.read_text(encoding="utf-8")
-    assert "st.login()" in source
+    assert "on_click=st.login" in source
+    assert "st.login()" not in source
     assert 'st.login("google")' not in source
-    assert "st.logout()" in source
+    assert "on_click=st.logout" in source
+    assert "st.logout()" not in source
     assert "st.user.is_logged_in" in source
 
 
