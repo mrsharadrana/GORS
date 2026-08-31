@@ -16,8 +16,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -29,4 +29,4 @@ jobs:
       - name: Compile production Python
         run: python -m py_compile GORS_APP_PROD/gors_db.py GORS_APP_PROD/pages/Rotation_Signal.py GORS_APP_PROD/pages/History.py GORS_APP_PROD/rotation_history.py
       - name: Run GORS tests
-        run: python -m pytest tests/test_gors_engine.py tests/test_phase7_dashboard.py tests/test_etf_rotation_history.py tests/test_rotation_history_page.py -q
+        run: python -m pytest tests/test_gors_engine.py tests/test_phase7_dashboard.py tests/test_etf_rotation_history.py tests/test_rotation_history_page.py tests/test_actions_hardening.py -q
