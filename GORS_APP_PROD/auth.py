@@ -9,7 +9,7 @@ import streamlit as st
 def require_google_login() -> None:
     """Require an authenticated Google OIDC session before rendering the app."""
     if not st.user.is_logged_in:
-        st.login("google")
+        st.login()
         st.stop()
 
 
