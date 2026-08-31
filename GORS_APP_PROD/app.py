@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from gors_db import *
+from auth import logout_button, require_google_login
 
 # ============================================================
 # GORS_APP_PROD — DAILY TRADING COCKPIT
@@ -13,6 +14,8 @@ from gors_db import *
 # This release is a presentation/workflow redesign only.
 # ============================================================
 st.set_page_config(page_title="GORS_APP_PROD", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+require_google_login()
+logout_button()
 init_db()
 migration_message = migrate_v12_if_needed()
 # Protect the permanent DB once per day before any new UI edits/imports.
