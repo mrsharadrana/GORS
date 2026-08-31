@@ -7,14 +7,15 @@ on:
       timezone: 'Asia/Kolkata'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: GORS_APP_PROD
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,4 +31,6 @@ jobs:
           pip install -r requirements.txt
 
       - name: Refresh Yahoo Finance data and persist GORS signal
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python market_refresh.py
