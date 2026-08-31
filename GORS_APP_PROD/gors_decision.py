@@ -7,8 +7,25 @@ own Top-3 or risk-state selection logic. Strategy parameters remain frozen in
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from gors_engine import calculate_gors_signal, load_market_data
+from gors_engine import (
+    calculate_gors_signal,
+    latest_completed_common_date,
+    load_market_data,
+)
+
+INDIA_TZ = ZoneInfo("Asia/Kolkata")
+
+
+def _normalize_as_of(as_of):
+    """Normalize an as_of timestamp to an India-market calendar timestamp."""
+    if as_of is None:
+        return datetime.now(INDIA_TZ).replace(tzinfo=None)
+
+    timestamp = datetime.fromisoformat(as_of) if isinstance(as_of, str) else as_of
+    timestamp = datetime.fromtimestamp(timestamp.timestamp(), INDIA_TZ) if timestamp.tzinfo else timestamp
+    return timestamp.replace(tzinfo=None)
 
 
 def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
@@ -16,14 +33,29 @@ def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
 
     ``panel`` is injectable for deterministic tests. Production callers should
     omit it so the engine loads the configured market-data source.
+
+    The engine's signal calculation is scoped to the latest completed market
+    date first. This prevents a full-history backtest state from leaking into a
+    historical/live cutoff decision when ``calculate_gors_signal`` is called
+    with an ``as_of`` value.
     """
     market_data = load_market_data() if panel is None else panel
-    effective_as_of = datetime.now() if as_of is None else as_of
-    signal = calculate_gors_signal(market_data, as_of=effective_as_of)
+    effective_as_of = _normalize_as_of(as_of)
+    cutoff = latest_completed_common_date(market_data, as_of=effective_as_of)
+    if cutoff is None:
+        raise RuntimeError("GORS decision is invalid: no completed market-data date")
 
-    top3 = list(signal.get("top3", []))[:3]
-    if len(top3) != 3:
-        raise RuntimeError(f"GORS decision is invalid: expected 3 Top-3 ETFs, got {top3}")
+    scoped_panel = market_data.loc[market_data.index <= cutoff].copy()
+    # calculate_gors_signal interprets as_of as a boundary strictly after the
+    # desired market date, so use the following calendar day to retain cutoff.
+    signal = calculate_gors_signal(scoped_panel, as_of=cutoff + __import__("pandas").Timedelta(days=1))
+
+    raw_top3 = list(signal.get("top3", []))
+    if len(raw_top3) != 3:
+        raise RuntimeError(
+            f"GORS decision is invalid: expected exactly 3 Top-3 ETFs, got {raw_top3}"
+        )
+    top3 = raw_top3
 
     risk_state = str(signal.get("risk_state", "")).strip().upper()
     if risk_state not in {"RISK ON", "RISK OFF"}:
