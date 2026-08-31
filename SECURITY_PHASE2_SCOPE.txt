@@ -1,0 +1,1 @@
+Phase 2 hardens GitHub Actions permissions and secret scope without changing GORS runtime behavior.
