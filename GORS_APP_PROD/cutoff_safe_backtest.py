@@ -20,8 +20,7 @@ def latest_completed_date(panel: pd.DataFrame, as_of=None) -> pd.Timestamp:
     idx = pd.DatetimeIndex(panel.index)
     if idx.tz is not None:
         idx = idx.tz_convert(IST).tz_localize(None)
-    cutoff = normalize_as_of(as_of)
-    completed = idx[idx < cutoff]
+    completed = idx[idx < normalize_as_of(as_of)]
     if len(completed) == 0:
         raise RuntimeError("No completed market-data date exists before as_of.")
     return completed[-1]
@@ -38,7 +37,6 @@ def slice_to_cutoff(panel: pd.DataFrame, as_of=None):
 
 def run(panel: pd.DataFrame, as_of=None):
     scoped, cutoff = slice_to_cutoff(panel, as_of)
-    start = gors_engine.first_valid(scoped)
-    result = gors_engine.run_forensic(scoped, start)
+    result = gors_engine.run_forensic(scoped, gors_engine.first_valid(scoped))
     result["cutoff"] = cutoff
     return result
