@@ -29,8 +29,6 @@ def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
     cutoff = latest_completed_date(market_data, as_of=effective_as_of)
     scoped_panel = market_data.loc[market_data.index <= cutoff].copy()
 
-    # Top-3/ranking comes from the frozen signal engine; risk state/equity comes
-    # from the cutoff-safe backtest adapter. Both consume the exact same data cutoff.
     signal = calculate_gors_signal(scoped_panel, as_of=cutoff + pd.Timedelta(days=1))
     safe_result = run_cutoff_safe_backtest(scoped_panel, as_of=cutoff + pd.Timedelta(days=1))
     last = safe_result["state"].iloc[-1]
@@ -40,6 +38,7 @@ def get_current_gors_decision(*, as_of=None, panel=None) -> dict:
         raise RuntimeError(f"GORS decision is invalid: expected exactly 3 Top-3 ETFs, got {raw_top3}")
 
     risk_state = "RISK OFF" if bool(last["RiskOn"]) else "RISK ON"
+    signal["cutoff"] = cutoff.date().isoformat()
     signal["risk_state"] = risk_state
     signal["target_exposure_pct"] = float(last["TargetExposure"])
     signal["actual_exposure_pct"] = float(last["ActualExposure"])
