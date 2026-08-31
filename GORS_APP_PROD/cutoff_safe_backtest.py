@@ -1,19 +1,11 @@
-"""Cutoff-safe orchestration around the frozen GORS forensic engine.
-
-This module owns only date normalization and data slicing. It does not alter
-any strategy parameter or trading rule in gors_engine.
-"""
+"""Cutoff-safe orchestration around the frozen GORS forensic engine."""
 from __future__ import annotations
-
 from zoneinfo import ZoneInfo
 import pandas as pd
 import gors_engine
-
 IST = ZoneInfo("Asia/Kolkata")
 
-
 def normalize_as_of(as_of=None) -> pd.Timestamp:
-    """Normalize an input timestamp to the India market calendar date."""
     ts = pd.Timestamp.now(tz=IST) if as_of is None else pd.Timestamp(as_of)
     if ts.tzinfo is None:
         ts = ts.tz_localize(IST)
@@ -21,9 +13,7 @@ def normalize_as_of(as_of=None) -> pd.Timestamp:
         ts = ts.tz_convert(IST)
     return ts.tz_localize(None).normalize()
 
-
 def latest_completed_date(panel: pd.DataFrame, as_of=None) -> pd.Timestamp:
-    """Return the latest panel date strictly before the India calendar date."""
     if panel.empty:
         raise RuntimeError("No market data available.")
     idx = pd.DatetimeIndex(panel.index)
@@ -33,7 +23,6 @@ def latest_completed_date(panel: pd.DataFrame, as_of=None) -> pd.Timestamp:
     if len(completed) == 0:
         raise RuntimeError("No completed market-data date exists before as_of.")
     return completed[-1]
-
 
 def slice_to_cutoff(panel: pd.DataFrame, as_of=None):
     cutoff = latest_completed_date(panel, as_of)
@@ -45,9 +34,8 @@ def slice_to_cutoff(panel: pd.DataFrame, as_of=None):
     data = data[~data.index.duplicated(keep="last")].sort_index()
     return data.loc[:cutoff].copy(), cutoff
 
-
 def run(panel: pd.DataFrame, as_of=None):
-    """Run the frozen forensic engine on data available at the cutoff only."""
+    """Run the unchanged forensic engine against data available at cutoff."""
     scoped, cutoff = slice_to_cutoff(panel, as_of)
     result = gors_engine.run_forensic(scoped, gors_engine.first_valid(scoped))
     result["cutoff"] = cutoff
